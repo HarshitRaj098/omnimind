@@ -9,7 +9,7 @@ interface SidebarProps {
   onSelect: (id: string) => void;
   onNewChat: () => void;
   onDelete: (id: string) => Promise<boolean>;
-  onRename: (id: string, newTitle: string) => void;
+  onRename: (id: string, newTitle: string) => Promise<string | null>;
   onTogglePin: (id: string, pinned: boolean) => void;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
@@ -135,12 +135,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setEditTitle(c.title);
   };
 
-  const saveRename = (id: string, e: React.MouseEvent) => {
+  const saveRename = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (editTitle.trim()) {
-      onRename(id, editTitle.trim());
+    const nextTitle = editTitle.trim();
+    if (!nextTitle) {
+      setEditingId(null);
+      return;
     }
-    setEditingId(null);
+
+    const savedTitle = await onRename(id, nextTitle);
+    if (savedTitle !== null) {
+      setSearchResults(previous =>
+        previous.map(conversation =>
+          conversation.id === id ? { ...conversation, title: savedTitle } : conversation
+        )
+      );
+      setEditingId(null);
+    }
   };
 
   const cancelRename = (e: React.MouseEvent) => {
