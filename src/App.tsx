@@ -396,6 +396,39 @@ export default function App() {
     }
   };
 
+  const handleTogglePinConversation = async (id: string, pinned: boolean) => {
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Failed to update pinned conversation.");
+        return;
+      }
+
+      setConversations(prev =>
+        prev
+          .map(conversation => conversation.id === id
+            ? { ...conversation, pinned: Boolean(data.pinned) }
+            : conversation)
+          .sort((a, b) =>
+            Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) ||
+            b.updatedAt - a.updatedAt
+          )
+      );
+      setActiveConversation(prev =>
+        prev?.id === id ? { ...prev, pinned: Boolean(data.pinned) } : prev
+      );
+      setError(null);
+    } catch (e) {
+      console.error("Failed to update pinned conversation:", e);
+      setError("Could not update the pinned state. Check the server connection.");
+    }
+  };
+
   const handleSaveSettings = async (newSettings: AppSettings) => {
     try {
       const res = await fetch("/api/settings", {
@@ -428,6 +461,7 @@ export default function App() {
         onNewChat={handleNewChat}
         onDelete={handleDeleteConversation}
         onRename={handleRenameConversation}
+        onTogglePin={handleTogglePinConversation}
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}
         onOpenSettings={() => setIsSettingsOpen(true)}
