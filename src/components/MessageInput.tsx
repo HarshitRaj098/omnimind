@@ -106,7 +106,20 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           </p>
         )}
         {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-2 px-4 pt-3">
+          <div className="px-4 pt-3">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="text-[11px] text-[var(--claude-text-muted)]">
+                {attachments.length} attachment{attachments.length === 1 ? "" : "s"}
+              </span>
+              <button
+                type="button"
+                onClick={() => setAttachments([])}
+                className="text-[11px] text-[var(--claude-text-muted)] underline underline-offset-2 hover:text-rose-500"
+              >
+                Remove all
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
             {attachments.map((attachment, index) => (
               <div
                 key={`${attachment.name}-${index}`}
@@ -123,6 +136,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                 </button>
               </div>
             ))}
+            </div>
           </div>
         )}
 
