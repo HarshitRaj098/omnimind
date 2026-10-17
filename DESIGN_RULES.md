@@ -27,7 +27,22 @@ All screens and dialogs must strictly use the unified component library:
 - **`AppIcon`**:
   - Unified bespoke SVG icon family with consistent `1.6` stroke width, eliminating oversized or mismatched third-party icons.
 
-## 3. Phased Implementation Plan
+## 3. Visible-Control Economy (Permanent Rule)
+
+The default chat is a conversation, not a control panel. Keep visible controls to the minimum needed for the current task.
+
+- Do not add top-right action icons, floating buttons, permanent toolbars, or quick-prompt card grids unless evidence shows a specific recurring user need.
+- Never render decorative avatars or icons on every message when typography and alignment already establish message roles.
+- Keep message actions contextual, available on keyboard focus as well as pointer hover.
+- Do not show timestamps and separator rows on every message by default; expose metadata when it provides real value.
+- Prefer unboxed source links and typography-led grouping over bordered chips and pill-like containers.
+- Keep the composer to attachment, text entry, and the single state-appropriate send/stop action. Do not display inactive modes or duplicated model controls.
+- Before adding a control, identify the user problem, check existing alternatives, and remove the redundant control it replaces.
+- Do not delete a backend capability merely to simplify the UI. Reuse existing settings, navigation, or contextual actions for secondary workflows.
+- Every visible control must have a working handler and an accessible name. Dead controls are defects, not placeholders.
+- Confirm responsive behavior and compare actual screenshots before declaring the UI simplified.
+
+## 4. Phased Implementation Plan
 
 ### Phase 1: Component System & Visual Cohesion Foundation (First Release Boundary)
 - [x] Standardize global CSS design tokens in `src/index.css` (warm Claude neutrals, charcoal typography, terracotta accents).
@@ -52,7 +67,7 @@ All screens and dialogs must strictly use the unified component library:
 - [ ] Explicit user confirmation safeguards for external destructive actions.
 - [ ] Automated skill discovery and progressive tool activation.
 
-## 4. Definition of First Release Boundary
+## 5. Definition of First Release Boundary
 The First Release Boundary represents the minimum bar for visual integrity and architectural stability:
 1. **Zero Style Fragmentation**: No component may use hardcoded raw colors (`zinc-900`, `blue-600`, etc.) when semantic CSS variables exist.
 2. **Zero Dead Clicks**: All buttons and shortcuts must trigger working modals, actions, or API calls.
