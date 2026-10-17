@@ -137,57 +137,50 @@ const DEFAULT_APPS: ConnectedApp[] = [
     id: "gmail",
     name: "Google Gmail",
     category: "google",
-    connected: true,
-    scopes: ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.send"],
-    lastConnected: Date.now()
+    connected: false,
+    scopes: ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.send"]
   },
   {
     id: "drive",
     name: "Google Drive",
     category: "google",
-    connected: true,
-    scopes: ["https://www.googleapis.com/auth/drive.readonly"],
-    lastConnected: Date.now()
+    connected: false,
+    scopes: ["https://www.googleapis.com/auth/drive.readonly"]
   },
   {
     id: "docs",
     name: "Google Docs",
     category: "google",
-    connected: true,
-    scopes: ["https://www.googleapis.com/auth/documents"],
-    lastConnected: Date.now()
+    connected: false,
+    scopes: ["https://www.googleapis.com/auth/documents"]
   },
   {
     id: "sheets",
     name: "Google Sheets",
     category: "google",
-    connected: true,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-    lastConnected: Date.now()
+    connected: false,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
   },
   {
     id: "calendar",
     name: "Google Calendar",
     category: "google",
-    connected: true,
-    scopes: ["https://www.googleapis.com/auth/calendar"],
-    lastConnected: Date.now()
+    connected: false,
+    scopes: ["https://www.googleapis.com/auth/calendar"]
   },
   {
     id: "tasks",
     name: "Google Tasks",
     category: "google",
-    connected: true,
-    scopes: ["https://www.googleapis.com/auth/tasks"],
-    lastConnected: Date.now()
+    connected: false,
+    scopes: ["https://www.googleapis.com/auth/tasks"]
   },
   {
     id: "youtube",
     name: "YouTube Research & Data",
     category: "youtube",
-    connected: true,
-    scopes: ["https://www.googleapis.com/auth/youtube.readonly"],
-    lastConnected: Date.now()
+    connected: false,
+    scopes: ["https://www.googleapis.com/auth/youtube.readonly"]
   },
   {
     id: "whatsapp",
@@ -195,7 +188,6 @@ const DEFAULT_APPS: ConnectedApp[] = [
     category: "whatsapp",
     connected: false,
     scopes: ["whatsapp_business_messaging", "whatsapp_business_management"],
-    lastConnected: undefined
   }
 ];
 
@@ -358,15 +350,24 @@ function saveSharedConversations(shared: SharedConversation[]) {
 }
 
 function loadApps(): ConnectedApp[] {
+  let apps: ConnectedApp[] = DEFAULT_APPS;
   try {
     if (fs.existsSync(APPS_FILE)) {
-      return JSON.parse(fs.readFileSync(APPS_FILE, "utf-8"));
+      apps = JSON.parse(fs.readFileSync(APPS_FILE, "utf-8"));
     }
   } catch (e) {
     console.error("Error loading connected apps:", e);
   }
-  saveApps(DEFAULT_APPS);
-  return DEFAULT_APPS;
+
+  // Provider OAuth/API integrations are not implemented yet. Never trust a
+  // persisted UI toggle as proof that an external account is authenticated.
+  const safeApps = apps.map(app => ({
+    ...app,
+    connected: false,
+    lastConnected: undefined
+  }));
+  saveApps(safeApps);
+  return safeApps;
 }
 
 function saveApps(apps: ConnectedApp[]) {
@@ -833,141 +834,49 @@ app.post("/api/apps/:id/toggle", (req, res) => {
   const apps = loadApps();
   const appItem = apps.find(a => a.id === id);
   if (!appItem) return res.status(404).json({ error: "App not found" });
-  appItem.connected = !!connected;
-  if (appItem.connected) {
-    appItem.lastConnected = Date.now();
+
+  if (connected) {
+    return res.status(501).json({
+      error: `${appItem.name} cannot be connected yet because its real authentication integration is not implemented.`,
+      connected: false
+    });
   }
+
+  appItem.connected = false;
+  appItem.lastConnected = undefined;
   saveApps(apps);
-  res.json(appItem);
+  return res.json(appItem);
 });
 
 // Tool Execution Endpoint for Connected Apps with Read/Write Distinction
 app.post("/api/tools/execute", async (req, res) => {
-  const { name, args = {}, confirmed = false } = req.body;
-  const apps = loadApps();
-
-  switch (name) {
-    case "gmail_read":
-    case "gmail_search": {
-      const isConnected = apps.find(a => a.id === "gmail")?.connected;
-      if (!isConnected) return res.status(403).json({ error: "Gmail is not connected. Enable it in Connected Apps." });
-      return res.json({
-        service: "gmail",
-        actionType: "read",
-        query: args.query || "in:inbox",
-        messages: [
-          { id: "gm_101", from: "team@company.com", subject: "Q3 Strategy & Roadmap Update", snippet: "Attached is the revised Q3 strategic roadmap for review..." },
-          { id: "gm_102", from: "alex@partners.org", subject: "Meeting Confirmation: Tomorrow at 2 PM", snippet: "Looking forward to discussing the AI integrations..." }
-        ]
-      });
-    }
-
-    case "gmail_send": {
-      const isConnected = apps.find(a => a.id === "gmail")?.connected;
-      if (!isConnected) return res.status(403).json({ error: "Gmail is not connected." });
-      if (!confirmed) {
-        return res.status(428).json({
-          requiresConfirmation: true,
-          actionType: "write",
-          actionDescription: `Send email to ${args.to || "recipient"} with subject "${args.subject || "No subject"}"`,
-          payload: args
-        });
-      }
-      return res.json({
-        success: true,
-        service: "gmail",
-        actionType: "write",
-        messageId: "gm_sent_" + Date.now(),
-        to: args.to,
-        subject: args.subject,
-        executedAt: Date.now()
-      });
-    }
-
-    case "drive_search": {
-      const isConnected = apps.find(a => a.id === "drive")?.connected;
-      if (!isConnected) return res.status(403).json({ error: "Google Drive is not connected." });
-      return res.json({
-        service: "drive",
-        actionType: "read",
-        files: [
-          { id: "drv_1", name: "2026 Financial Projections.xlsx", mimeType: "application/vnd.google-apps.spreadsheet", modifiedTime: new Date().toISOString() },
-          { id: "drv_2", name: "Architecture Specification.docx", mimeType: "application/vnd.google-apps.document", modifiedTime: new Date().toISOString() }
-        ]
-      });
-    }
-
-    case "calendar_events": {
-      const isConnected = apps.find(a => a.id === "calendar")?.connected;
-      if (!isConnected) return res.status(403).json({ error: "Google Calendar is not connected." });
-      return res.json({
-        service: "calendar",
-        actionType: "read",
-        events: [
-          { id: "cal_1", summary: "Product Sync & Design Review", start: new Date(Date.now() + 3600000).toISOString(), attendees: ["user@company.com"] },
-          { id: "cal_2", summary: "Quarterly Strategy Session", start: new Date(Date.now() + 86400000).toISOString(), attendees: ["leadership@company.com"] }
-        ]
-      });
-    }
-
-    case "calendar_create": {
-      const isConnected = apps.find(a => a.id === "calendar")?.connected;
-      if (!isConnected) return res.status(403).json({ error: "Google Calendar is not connected." });
-      if (!confirmed) {
-        return res.status(428).json({
-          requiresConfirmation: true,
-          actionType: "write",
-          actionDescription: `Create calendar event: "${args.summary || "New Meeting"}" at ${args.start || "Tomorrow 10:00 AM"}`,
-          payload: args
-        });
-      }
-      return res.json({
-        success: true,
-        service: "calendar",
-        actionType: "write",
-        eventId: "cal_ev_" + Date.now(),
-        summary: args.summary,
-        start: args.start,
-        executedAt: Date.now()
-      });
-    }
-
-    case "youtube_search": {
-      const isConnected = apps.find(a => a.id === "youtube")?.connected;
-      if (!isConnected) return res.status(403).json({ error: "YouTube API is not connected." });
-      return res.json({
-        service: "youtube",
-        actionType: "read",
-        query: args.query,
-        videos: [
-          { id: "yt_1", title: "Building Modern AI Workspaces with Gemini", duration: "18:42", channel: "AI Engineering Labs" }
-        ]
-      });
-    }
-
-    case "whatsapp_send": {
-      const isConnected = apps.find(a => a.id === "whatsapp")?.connected;
-      if (!isConnected) return res.status(403).json({ error: "WhatsApp Cloud API is not connected. Configure in Connected Apps." });
-      if (!confirmed) {
-        return res.status(428).json({
-          requiresConfirmation: true,
-          actionType: "write",
-          actionDescription: `Send WhatsApp message to ${args.to || "+15550199"}: "${args.text || ""}"`,
-          payload: args
-        });
-      }
-      return res.json({
-        service: "whatsapp",
-        actionType: "write",
-        status: "sent",
-        recipient: args.to || "+15550199",
-        timestamp: Date.now()
-      });
-    }
-
-    default:
-      return res.json({ success: true, service: name, details: "Executed simulated action successfully.", args });
+  const { name } = req.body as { name?: string };
+  if (!name || typeof name !== "string") {
+    return res.status(400).json({ error: "A tool name is required." });
   }
+
+  const implementedTools = new Set([
+    "gmail_read",
+    "gmail_search",
+    "gmail_send",
+    "drive_search",
+    "calendar_events",
+    "calendar_create",
+    "youtube_search",
+    "whatsapp_send"
+  ]);
+
+  if (!implementedTools.has(name)) {
+    return res.status(400).json({ error: `Unknown tool: ${name}` });
+  }
+
+  // Do not return fixture data or fake success for external actions. A real
+  // provider adapter and authenticated credentials must exist before execution.
+  return res.status(501).json({
+    error: `The ${name} integration is not implemented yet. No external action was performed.`,
+    tool: name,
+    executed: false
+  });
 });
 
 // Files & ZIP Engine Endpoints
