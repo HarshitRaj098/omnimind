@@ -233,19 +233,25 @@ export default function App() {
 
   const handleRenameConversation = async (id: string, newTitle: string) => {
     try {
-      const res = await fetch(`/api/conversations/${id}`, {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(id)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: newTitle })
       });
-      if (res.ok) {
-        setConversations(prev => prev.map(c => c.id === id ? { ...c, title: newTitle } : c));
-        if (activeConversation && activeConversation.id === id) {
-          setActiveConversation({ ...activeConversation, title: newTitle });
-        }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Conversation rename failed");
       }
+
+      const savedTitle = typeof data.title === "string" ? data.title : newTitle;
+      setConversations(prev => prev.map(c => c.id === id ? { ...c, title: savedTitle } : c));
+      setActiveConversation(prev =>
+        prev?.id === id ? { ...prev, title: savedTitle } : prev
+      );
+      setError(null);
     } catch (e) {
       console.error("Failed to rename conversation:", e);
+      setError("Couldn't rename this conversation. Check your connection and try again.");
     }
   };
 
