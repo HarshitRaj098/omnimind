@@ -55,6 +55,11 @@ export default function App() {
   useEffect(() => {
     if (activeId) {
       fetchConversationDetail(activeId);
+      try {
+        window.localStorage.setItem("omnimind:last-conversation", activeId);
+      } catch {
+        // Remembering the active chat is optional when storage is unavailable.
+      }
     } else {
       setActiveConversation(null);
     }
@@ -67,7 +72,16 @@ export default function App() {
         const data = await res.json();
         setConversations(data);
         if (data.length > 0 && !activeId) {
-          setActiveId(data[0].id);
+          let rememberedId: string | null = null;
+          try {
+            rememberedId = window.localStorage.getItem("omnimind:last-conversation");
+          } catch {
+            // Storage may be unavailable in private or restricted browsing contexts.
+          }
+          const rememberedConversation = data.find(
+            (conversation: ConversationSummary) => conversation.id === rememberedId
+          );
+          setActiveId(rememberedConversation?.id || data[0].id);
         }
       }
     } catch (e) {
