@@ -1333,8 +1333,12 @@ app.post("/api/chat/stream", async (req, res) => {
   const useSearch = webSearch !== false;
 
   let isAborted = false;
-  req.on("close", () => {
-    isAborted = true;
+  // The request body can finish closing while its response is still streaming.
+  // Only treat a response close before completion as a client-side abort.
+  res.on("close", () => {
+    if (!res.writableEnded) {
+      isAborted = true;
+    }
   });
 
   try {
