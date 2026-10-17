@@ -23,6 +23,7 @@ export interface ConversationSummary {
   title: string;
   model: string;
   personaOverride?: string;
+  pinned?: boolean;
   updatedAt: number;
   createdAt: number;
   messageCount: number;
