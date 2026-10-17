@@ -8,7 +8,7 @@ interface SidebarProps {
   activeId: string | null;
   onSelect: (id: string) => void;
   onNewChat: () => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => Promise<boolean>;
   onRename: (id: string, newTitle: string) => void;
   onTogglePin: (id: string, pinned: boolean) => void;
   isOpen: boolean;
@@ -143,10 +143,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setEditingId(null);
   };
 
-  const handleDelete = (id: string, e: React.MouseEvent) => {
+  const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm("Delete this conversation?")) {
-      onDelete(id);
+    if (!confirm("Delete this conversation?")) return;
+    const deleted = await onDelete(id);
+    if (deleted) {
+      setSearchResults((previous) => previous.filter((conversation) => conversation.id !== id));
+      setHighlightedIndex(-1);
     }
   };
 
