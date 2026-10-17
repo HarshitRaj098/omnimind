@@ -228,7 +228,7 @@ export default function App() {
     }
   };
 
-  const handleRenameConversation = async (id: string, newTitle: string) => {
+  const handleRenameConversation = async (id: string, newTitle: string): Promise<string | null> => {
     try {
       const res = await fetch(`/api/conversations/${encodeURIComponent(id)}`, {
         method: "PUT",
@@ -246,9 +246,11 @@ export default function App() {
         prev?.id === id ? { ...prev, title: savedTitle } : prev
       );
       setError(null);
+      return savedTitle;
     } catch (e) {
       console.error("Failed to rename conversation:", e);
       setError("Couldn't rename this conversation. Check your connection and try again.");
+      return null;
     }
   };
 
