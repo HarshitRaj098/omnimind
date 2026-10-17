@@ -40,7 +40,7 @@ export default function App() {
     model: "gemini-2.5-flash",
     temperature: 0.7,
     systemInstruction: "",
-    defaultPersona: "wiaf",
+    defaultPersona: "dragon_queen",
     activeMode: "normal",
     theme: "dark"
   });
