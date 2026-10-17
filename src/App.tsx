@@ -333,68 +333,76 @@ export default function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let accumulatedText = "";
+      let eventBuffer = "";
+
+      const processSseEvent = (eventText: string) => {
+        const dataLine = eventText
+          .split("\n")
+          .find(line => line.startsWith("data: "));
+        if (!dataLine) return;
+
+        try {
+          const data = JSON.parse(dataLine.substring(6));
+          if (data.error) {
+            setError(data.error);
+            setActiveConversation(prev => {
+              if (!prev) return prev;
+              return { ...prev, messages: prev.messages.filter(m => m.id !== modelMsgId) };
+            });
+            return;
+          }
+          if (data.text) {
+            accumulatedText += data.text;
+            setActiveConversation(prev => {
+              if (!prev) return prev;
+              const newMsgs = [...prev.messages];
+              const lastMsg = newMsgs[newMsgs.length - 1];
+              if (lastMsg?.role !== "model") {
+                newMsgs.push({
+                  id: modelMsgId,
+                  role: "model",
+                  content: accumulatedText,
+                  timestamp: Date.now()
+                });
+              } else {
+                newMsgs[newMsgs.length - 1] = { ...lastMsg, content: accumulatedText };
+              }
+              return { ...prev, messages: newMsgs };
+            });
+          }
+          if (data.grounding) {
+            setActiveConversation(prev => {
+              if (!prev) return prev;
+              const newMsgs = [...prev.messages];
+              const lastIndex = newMsgs.length - 1;
+              const lastMsg = newMsgs[lastIndex];
+              if (lastMsg?.role === "model") {
+                newMsgs[lastIndex] = { ...lastMsg, grounding: data.grounding };
+              }
+              return { ...prev, messages: newMsgs };
+            });
+          }
+          if (data.conversationId && !activeId) setActiveId(data.conversationId);
+        } catch (err) {
+          console.error("JSON parse error on SSE event:", err);
+        }
+      };
 
       while (true) {
         const { value, done } = await reader.read();
-        if (done) break;
+        eventBuffer += decoder.decode(value || new Uint8Array(), { stream: !done });
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n\n");
+        let separatorIndex = eventBuffer.indexOf("\n\n");
+        while (separatorIndex !== -1) {
+          const eventText = eventBuffer.slice(0, separatorIndex);
+          eventBuffer = eventBuffer.slice(separatorIndex + 2);
+          processSseEvent(eventText);
+          separatorIndex = eventBuffer.indexOf("\n\n");
+        }
 
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.substring(6));
-              if (data.error) {
-                setError(data.error);
-                setActiveConversation(prev => {
-                  if (!prev) return prev;
-                  return {
-                    ...prev,
-                    messages: prev.messages.filter(m => m.id !== modelMsgId)
-                  };
-                });
-                break;
-              }
-              if (data.text) {
-                accumulatedText += data.text;
-                setActiveConversation(prev => {
-                  if (!prev) return prev;
-                  const newMsgs = [...prev.messages];
-                  
-                  // Check if last message is model message, if not, add it
-                  if (newMsgs[newMsgs.length - 1].role !== "model") {
-                      newMsgs.push({
-                        id: modelMsgId,
-                        role: "model",
-                        content: accumulatedText,
-                        timestamp: Date.now()
-                      });
-                  } else {
-                      newMsgs[newMsgs.length - 1].content = accumulatedText;
-                  }
-                  
-                  return { ...prev, messages: newMsgs };
-                });
-              }
-              if (data.grounding) {
-                setActiveConversation(prev => {
-                  if (!prev) return prev;
-                  const newMsgs = [...prev.messages];
-                  const lastMsg = newMsgs[newMsgs.length - 1];
-                  if (lastMsg && lastMsg.role === "model") {
-                    lastMsg.grounding = data.grounding;
-                  }
-                  return { ...prev, messages: newMsgs };
-                });
-              }
-              if (data.conversationId && !activeId) {
-                setActiveId(data.conversationId);
-              }
-            } catch (err) {
-              console.error("JSON parse error on SSE chunk:", err);
-            }
-          }
+        if (done) {
+          if (eventBuffer.trim()) processSseEvent(eventBuffer);
+          break;
         }
       }
 
