@@ -279,7 +279,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     ) : (
                       <span className="min-w-0 flex-1">
                         <span className="block truncate">{c.title}</span>
-                        {search.trim() && "snippet" in c && (
+                        {search.trim() && "snippet" in c && typeof c.snippet === "string" && (
                           <span className="mt-0.5 block truncate text-[10px] font-normal text-[var(--claude-text-muted)]">
                             {c.snippet}
                           </span>
