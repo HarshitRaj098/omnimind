@@ -109,15 +109,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           </div>
         </div>
 
-        {/* Simplified Action Controls */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          <Button
-            size="sm"
-            variant="quiet"
-            icon={<AppIcon name="settings" size={16} />}
-            title="More Options"
-          />
-        </div>
+
       </header>
 
       {/* Main Messages or Empty State */}
