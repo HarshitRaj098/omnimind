@@ -52,6 +52,7 @@ interface Conversation {
   title: string;
   model: string;
   personaOverride?: string;
+  pinned?: boolean;
   messages: Message[];
   createdAt: number;
   updatedAt: number;
@@ -551,10 +552,11 @@ app.get("/api/conversations", (req, res) => {
     title: c.title,
     model: c.model,
     personaOverride: c.personaOverride,
+    pinned: Boolean(c.pinned),
     updatedAt: c.updatedAt,
     createdAt: c.createdAt,
     messageCount: c.messages.length
-  })).sort((a, b) => b.updatedAt - a.updatedAt);
+  })).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
   res.json(summary);
 });
 
@@ -583,12 +585,13 @@ app.get("/api/conversations/:id", (req, res) => {
 });
 
 app.put("/api/conversations/:id", (req, res) => {
-  const { title, personaOverride } = req.body;
+  const { title, personaOverride, pinned } = req.body;
   const convs = loadConversations();
   const conv = convs.find(c => c.id === req.params.id);
   if (!conv) return res.status(404).json({ error: "Conversation not found" });
   if (title) conv.title = title;
   if (personaOverride !== undefined) conv.personaOverride = personaOverride;
+  if (typeof pinned === "boolean") conv.pinned = pinned;
   conv.updatedAt = Date.now();
   saveConversations(convs);
   res.json(conv);
@@ -657,11 +660,16 @@ app.get("/api/search/conversations", (req, res) => {
         title: c.title,
         snippet: bestSnippet,
         timestamp: c.updatedAt,
+        pinned: Boolean(c.pinned),
         messageCount: c.messages.length
       });
     }
   }
 
+  results.sort((a, b) =>
+    Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) ||
+    b.timestamp - a.timestamp
+  );
   res.json(results);
 });
 
