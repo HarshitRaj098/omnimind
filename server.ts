@@ -638,7 +638,19 @@ app.get("/api/search/conversations", (req, res) => {
     const matchedMsgs = c.messages.filter(m => m.content.toLowerCase().includes(q));
 
     if (titleMatch || matchedMsgs.length > 0) {
-      const bestSnippet = matchedMsgs[0]?.content.substring(0, 150) || c.title;
+      const matchedContent = matchedMsgs[0]?.content;
+      let bestSnippet = c.title;
+
+      if (matchedContent) {
+        const matchIndex = matchedContent.toLowerCase().indexOf(q);
+        const start = Math.max(0, matchIndex - 60);
+        const end = Math.min(
+          matchedContent.length,
+          matchIndex + q.length + 90
+        );
+        bestSnippet = `${start > 0 ? "…" : ""}${matchedContent.slice(start, end)}${end < matchedContent.length ? "…" : ""}`;
+      }
+
       results.push({
         id: c.id,
         type: "conversation",
