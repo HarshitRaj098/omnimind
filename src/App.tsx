@@ -454,8 +454,10 @@ export default function App() {
       setError(null);
       setActiveConversation(prev => {
         if (!prev) return prev;
-        const filtered = prev.messages.filter((m, idx) => !(idx === prev.messages.length - 1 && m.role === "model" && !m.content));
-        return { ...prev, messages: filtered };
+        const messages = [...prev.messages];
+        if (messages[messages.length - 1]?.role === "model") messages.pop();
+        if (messages[messages.length - 1]?.role === "user") messages.pop();
+        return { ...prev, messages };
       });
       handleSendMessage(lastUserText, lastAttachments);
     }
