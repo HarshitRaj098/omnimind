@@ -10,6 +10,7 @@ interface SidebarProps {
   onNewChat: () => void;
   onDelete: (id: string) => void;
   onRename: (id: string, newTitle: string) => void;
+  onTogglePin: (id: string, pinned: boolean) => void;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
   onOpenSettings: () => void;
@@ -27,6 +28,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNewChat,
   onDelete,
   onRename,
+  onTogglePin,
   isOpen,
   setIsOpen,
   onOpenSettings,
@@ -288,6 +290,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                   {!isEditing && (
                     <div className="hidden group-hover:flex items-center gap-1 shrink-0 ml-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onTogglePin(c.id, !Boolean(c.pinned));
+                        }}
+                        className="p-1 text-[var(--claude-text-muted)] hover:text-[var(--claude-text)] rounded-lg hover:bg-[var(--claude-border)] text-[10px]"
+                        title={c.pinned ? "Unpin conversation" : "Pin conversation"}
+                        aria-label={c.pinned ? "Unpin conversation" : "Pin conversation"}
+                      >
+                        {c.pinned ? "Unpin" : "Pin"}
+                      </button>
                       <button
                         onClick={(e) => startRename(c, e)}
                         className="p-1 text-[var(--claude-text-muted)] hover:text-[var(--claude-text)] rounded-lg hover:bg-[var(--claude-border)]"
