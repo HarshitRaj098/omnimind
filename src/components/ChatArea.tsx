@@ -63,25 +63,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     }
   };
 
-  const quickPrompts = [
-    {
-      title: "Write React Component",
-      prompt: "Write a modern, accessible Tailwind modal component in React TypeScript.",
-    },
-    {
-      title: "Summarize Complex Topic",
-      prompt: "Explain how large language models use self-attention mechanisms in simple terms.",
-    },
-    {
-      title: "Brainstorm Product Ideas",
-      prompt: "Give me 5 innovative SaaS product ideas powered by AI for developers.",
-    },
-    {
-      title: "Debug Python Code",
-      prompt: "How do I fix asynchronous concurrency deadlocks in Python asyncio?",
-    },
-  ];
-
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--claude-bg)] text-[var(--claude-text)] overflow-hidden relative">
       {/* Top Header */}
@@ -116,33 +97,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         <div className="max-w-3xl mx-auto px-4 py-8">
           {!conversation || conversation.messages.length === 0 ? (
-          <div className="max-w-2xl mx-auto h-full flex flex-col items-center justify-center text-center px-4">
-            <div className="w-12 h-12 rounded-2xl bg-[var(--claude-accent)] flex items-center justify-center text-white shadow-xs mb-4">
-              <AppIcon name="sparkles" size={22} />
-            </div>
-            <h3 className="text-lg sm:text-xl font-bold tracking-tight mb-2">
-              How can I assist your work today?
+          <div className="max-w-2xl mx-auto flex flex-col items-center justify-center text-center px-4 py-16">
+            <h3 className="text-xl sm:text-2xl font-medium tracking-tight mb-2">
+              What would you like to work on?
             </h3>
-            <p className="text-xs text-[var(--claude-text-muted)] max-w-md mb-8 leading-relaxed">
-              Powered by Gemini, persistent cross-session memory, and the regal Dragon Queen persona.
+            <p className="text-sm text-[var(--claude-text-muted)] max-w-md leading-relaxed">
+              Ask a question, explore an idea, or describe a task.
             </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
-              {quickPrompts.map((item, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => onSendMessage(item.prompt)}
-                  className="flex flex-col text-left p-3.5 rounded-xl bg-[var(--claude-surface)] border border-[var(--claude-border)] hover:border-[var(--claude-accent)] transition-all group shadow-2xs"
-                >
-                  <span className="font-semibold text-xs text-[var(--claude-text)] group-hover:text-[var(--claude-accent)] transition-colors mb-1">
-                    {item.title}
-                  </span>
-                  <span className="text-[11px] text-[var(--claude-text-muted)] line-clamp-2 leading-relaxed">
-                    {item.prompt}
-                  </span>
-                </button>
-              ))}
-            </div>
           </div>
         ) : (
           <div className="max-w-3xl mx-auto space-y-7 pb-8">
@@ -153,14 +114,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               return (
                 <div
                   key={msg.id}
-                  className={`flex gap-3 sm:gap-4 ${isUser ? "justify-end" : "justify-start"}`}
+                  className={`flex ${isUser ? "justify-end" : "justify-start"}`}
                 >
-                  {!isUser && (
-                    <div className="w-7 h-7 rounded-lg bg-[var(--claude-accent)] flex items-center justify-center text-white shrink-0 mt-1 shadow-xs">
-                      <AppIcon name="sparkles" size={14} />
-                    </div>
-                  )}
-
                   <div
                     className={`group relative max-w-[88%] sm:max-w-[85%] text-xs sm:text-sm leading-relaxed ${
                       isUser
@@ -179,7 +134,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
                     {/* Gemini Grounding & Verified Sources Tray */}
                     {!isUser && msg.grounding && (msg.grounding.sources?.length || msg.grounding.queries?.length) && (
-                      <div className="mt-3 pt-2.5 border-t border-[var(--claude-border)]/60 space-y-2">
+                      <div className="mt-3 space-y-2">
                         {msg.grounding.queries && msg.grounding.queries.length > 0 && (
                           <div className="flex items-center gap-1.5 text-[11px] text-[var(--claude-text-muted)] font-mono">
                             <AppIcon name="search" size={12} className="text-[var(--claude-accent)]" />
@@ -193,7 +148,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         {msg.grounding.sources && msg.grounding.sources.length > 0 && (
                           <div className="flex flex-wrap gap-1.5 items-center">
                             <span className="text-[10px] text-[var(--claude-text-muted)] font-medium mr-1 flex items-center gap-1">
-                              <AppIcon name="globe" size={12} className="text-[var(--claude-accent)]" />
                               Sources:
                             </span>
                             {msg.grounding.sources.map((src, i) => (
@@ -202,15 +156,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                                 href={src.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[var(--claude-surface)] border border-[var(--claude-border)] hover:border-[var(--claude-accent)] hover:text-[var(--claude-accent)] text-[11px] text-[var(--claude-text-secondary)] transition-colors group/link"
-                                title={src.title}
+                                className="text-[11px] text-[var(--claude-text-secondary)] hover:text-[var(--claude-accent)] hover:underline underline-offset-4 transition-colors"
+                                title={src.title || src.url}
                               >
-                                <span className="font-semibold text-[10px] text-[var(--claude-accent)]">
-                                  {i + 1}
-                                </span>
-                                <span className="truncate max-w-[130px] sm:max-w-[180px]">
-                                  {src.title || src.domain}
-                                </span>
+                                {i + 1}. {src.title || src.domain}
                               </a>
                             ))}
                           </div>
@@ -218,22 +167,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       </div>
                     )}
 
-                    {/* Message Actions */}
-                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-[var(--claude-border)]/50 text-[var(--claude-text-muted)] text-[10px]">
-                      <span>
-                        {new Date(msg.timestamp).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
-
-                      <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {!isUser && (
+                      <div className="mt-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                         <Button
                           size="sm"
                           variant="quiet"
                           icon={<AppIcon name={copiedId === msg.id ? "check" : "copy"} size={13} />}
                           onClick={() => handleCopy(msg.content, msg.id)}
-                          title="Copy text"
+                          title="Copy response"
                         />
 
                         {isLastModel && !isGenerating && (
@@ -242,32 +183,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                             variant="quiet"
                             icon={<AppIcon name="regenerate" size={13} />}
                             onClick={onRegenerate}
-                            title="Regenerate"
+                            title="Regenerate response"
                           />
                         )}
                       </div>
-                    </div>
+                    )}
                   </div>
 
-                  {isUser && (
-                    <div className="w-7 h-7 rounded-lg bg-[var(--claude-border)] flex items-center justify-center text-[var(--claude-text)] shrink-0 mt-1">
-                      <AppIcon name="user" size={14} />
-                    </div>
-                  )}
                 </div>
               );
             })}
 
             {/* Generating State */}
             {isGenerating && (
-              <div className="flex gap-4 items-center text-xs text-[var(--claude-text-muted)]">
-                <div className="w-7 h-7 rounded-lg bg-[var(--claude-accent)] flex items-center justify-center text-white shrink-0">
-                  <AppIcon name="sparkles" size={14} />
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-[var(--claude-accent)] animate-pulse" />
-                  <span>OmniMind is formulating a response...</span>
-                </div>
+              <div className="text-xs text-[var(--claude-text-muted)]" role="status" aria-live="polite">
+                Generating response…
               </div>
             )}
 
