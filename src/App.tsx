@@ -22,7 +22,13 @@ export default function App() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(() => {
+    try {
+      return window.localStorage.getItem("omnimind:unsent-draft") || "";
+    } catch {
+      return "";
+    }
+  });
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -51,6 +57,18 @@ export default function App() {
     fetchConversations();
     fetchSettings();
   }, []);
+
+  useEffect(() => {
+    try {
+      if (input) {
+        window.localStorage.setItem("omnimind:unsent-draft", input);
+      } else {
+        window.localStorage.removeItem("omnimind:unsent-draft");
+      }
+    } catch {
+      // Draft recovery is optional when browser storage is unavailable.
+    }
+  }, [input]);
 
   useEffect(() => {
     if (activeId) {
