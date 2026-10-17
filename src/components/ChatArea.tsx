@@ -61,6 +61,51 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   const hasMessages = Boolean(conversation?.messages.length);
 
+  const handleExportConversation = () => {
+    if (!conversation?.messages.length) return;
+
+    const escapeMarkdown = (value: string) =>
+      value.replace(/\\r\\n/g, "\\n").replace(/\\r/g, "\\n");
+
+    const transcript = [
+      `# ${conversation.title || "OmniMind conversation"}`,
+      "",
+      `Exported: ${new Date().toLocaleString()}`,
+      "",
+      ...conversation.messages.flatMap((message) => [
+        `## ${message.role === "user" ? "You" : "OmniMind"}`,
+        `_${new Date(message.timestamp).toLocaleString()}_`,
+        "",
+        escapeMarkdown(message.content),
+        ...(message.grounding?.sources?.length
+          ? [
+              "",
+              "Sources:",
+              ...message.grounding.sources.map(
+                (source) => `- [${source.title || source.domain || source.url}](${source.url})`
+              ),
+            ]
+          : []),
+        "",
+      ]),
+    ].join("\\n");
+
+    const blob = new Blob([transcript], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const safeTitle = (conversation.title || "omnimind-conversation")
+      .replace(/[^a-z0-9-_ ]/gi, "")
+      .trim()
+      .replace(/\\s+/g, "-")
+      .slice(0, 80) || "omnimind-conversation";
+    anchor.href = url;
+    anchor.download = `${safeTitle}.md`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <section className="flex-1 flex flex-col min-h-0 bg-[var(--claude-bg)] text-[var(--claude-text)] overflow-hidden">
       <header className="h-12 px-3 sm:px-5 flex items-center gap-2 shrink-0">
@@ -74,9 +119,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             title="Open conversation history"
           />
         )}
-        <h2 className="min-w-0 truncate text-sm font-medium text-[var(--claude-text-secondary)]">
+        <h2 className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--claude-text-secondary)]">
           {conversation?.title || "OmniMind"}
         </h2>
+        {hasMessages && (
+          <Button
+            size="sm"
+            variant="quiet"
+            onClick={handleExportConversation}
+            aria-label="Export conversation as Markdown"
+            title="Export conversation as Markdown"
+          >
+            Export
+          </Button>
+        )}
       </header>
 
       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
