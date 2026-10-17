@@ -26,6 +26,7 @@ interface ChatAreaProps {
 export const ChatArea: React.FC<ChatAreaProps> = ({
   conversation,
   isGenerating,
+  onSendMessage,
   onRegenerate,
   onRetry,
   onDismissError,
