@@ -51,8 +51,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
 
     let cancelled = false;
+    setSearchResults([]);
+    setIsSearching(true);
     const timeout = window.setTimeout(async () => {
-      setIsSearching(true);
       try {
         const response = await fetch(
           `/api/search/conversations?q=${encodeURIComponent(query)}`
