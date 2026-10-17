@@ -66,14 +66,18 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           setAttachmentError(`Couldn't read ${file.name}. Please try again.`);
           return;
         }
-        setAttachments((previous) => [
-          ...previous,
-          {
-            name: file.name,
-            mimeType: file.type || "application/octet-stream",
-            data: reader.result as string,
-          },
-        ]);
+        const mimeType = file.type || "application/octet-stream";
+        const data = reader.result as string;
+        setAttachments((previous) => {
+          if (previous.some((attachment) =>
+            attachment.name === file.name &&
+            attachment.mimeType === mimeType &&
+            attachment.data === data
+          )) {
+            return previous;
+          }
+          return [...previous, { name: file.name, mimeType, data }];
+        });
       };
       reader.onerror = () => {
         setAttachmentError(`Couldn't read ${file.name}. Please try again.`);
