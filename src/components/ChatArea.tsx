@@ -26,6 +26,7 @@ interface ChatAreaProps {
 export const ChatArea: React.FC<ChatAreaProps> = ({
   conversation,
   isGenerating,
+  onSendMessage,
   onRegenerate,
   onRetry,
   onDismissError,
@@ -156,6 +157,25 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             <p className="mt-3 max-w-md text-sm leading-6 text-[var(--claude-text-muted)]">
               Ask a question, explore an idea, or share a file to get started.
             </p>
+            <div className="mt-7 grid w-full max-w-xl grid-cols-1 gap-2 sm:grid-cols-2" aria-label="Prompt starters">
+              {[
+                { title: "Learn something", prompt: "Explain a difficult topic to me from first principles, with a simple example." },
+                { title: "Write or improve", prompt: "Help me write something clear and polished. Ask what I need if necessary." },
+                { title: "Debug my code", prompt: "Help me debug my code. Start by identifying likely causes, then suggest a minimal fix." },
+                { title: "Plan a project", prompt: "Help me turn a project idea into a practical plan with milestones and next actions." },
+              ].map((starter) => (
+                <button
+                  key={starter.title}
+                  type="button"
+                  disabled={isGenerating}
+                  onClick={() => onSendMessage(starter.prompt)}
+                  className="rounded-xl border border-[var(--claude-border)] bg-[var(--claude-surface)] px-4 py-3 text-left text-sm text-[var(--claude-text-secondary)] transition-colors hover:border-[var(--claude-accent)] hover:text-[var(--claude-text)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span className="block font-medium text-[var(--claude-text)]">{starter.title}</span>
+                  <span className="mt-1 block text-xs leading-5 text-[var(--claude-text-muted)]">{starter.prompt}</span>
+                </button>
+              ))}
+            </div>
           </div>
         ) : (
           <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 pt-5 pb-10 space-y-8">
