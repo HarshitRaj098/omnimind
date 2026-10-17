@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ConversationSummary } from "../types";
 import { Button, Input } from "./ui";
 import { AppIcon } from "./AppIcon";
@@ -16,7 +16,11 @@ interface SidebarProps {
   onOpenMemory: () => void;
 }
 
-interface ConversationSearchResult extends ConversationSummary {\n  snippet: string;\n}\n\nexport const Sidebar: React.FC<SidebarProps> = ({
+interface ConversationSearchResult extends ConversationSummary {
+  snippet: string;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({
   conversations,
   activeId,
   onSelect,
@@ -29,6 +33,10 @@ interface ConversationSearchResult extends ConversationSummary {\n  snippet: str
   onOpenMemory,
 }) => {
   const [search, setSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<ConversationSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
 
@@ -65,6 +73,47 @@ interface ConversationSearchResult extends ConversationSummary {\n  snippet: str
   }, [search]);
 
   const filtered = search.trim() ? searchResults : conversations;
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }
+
+      if (event.key === "Escape" && document.activeElement === searchInputRef.current) {
+        if (search) {
+          setSearch("");
+          setHighlightedIndex(-1);
+        } else {
+          searchInputRef.current?.blur();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [search]);
+
+  const selectConversation = (id: string) => {
+    onSelect(id);
+    setHighlightedIndex(-1);
+    if (window.innerWidth < 768) setIsOpen(false);
+  };
+
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown" && filtered.length > 0) {
+      event.preventDefault();
+      setHighlightedIndex((current) => current < filtered.length - 1 ? current + 1 : 0);
+    } else if (event.key === "ArrowUp" && filtered.length > 0) {
+      event.preventDefault();
+      setHighlightedIndex((current) => current > 0 ? current - 1 : filtered.length - 1);
+    } else if (event.key === "Enter" && highlightedIndex >= 0 && filtered[highlightedIndex]) {
+      event.preventDefault();
+      selectConversation(filtered[highlightedIndex].id);
+    }
+  };
 
   const startRename = (c: ConversationSummary, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -147,9 +196,14 @@ interface ConversationSearchResult extends ConversationSummary {\n  snippet: str
         {/* Search */}
         <div className="px-3 pb-2">
           <Input
-            placeholder="Search chats..."
+            ref={searchInputRef}
+            placeholder="Search chats... (Ctrl K)"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setHighlightedIndex(-1);
+            }}
+            onKeyDown={handleSearchKeyDown}
             icon={<AppIcon name="search" size={13} />}
           />
         </div>
@@ -172,16 +226,15 @@ interface ConversationSearchResult extends ConversationSummary {\n  snippet: str
               return (
                 <div
                   key={c.id}
-                  onClick={() => {
-                    onSelect(c.id);
-                    if (window.innerWidth < 768) setIsOpen(false);
-                  }}
+                  onClick={() => selectConversation(c.id)}
                   className={`
                     group relative flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer text-xs transition-colors
                     ${
                       isActive
                         ? "bg-[var(--claude-border)]/40 text-[var(--claude-text)] font-semibold"
-                        : "text-[var(--claude-text-secondary)] hover:bg-[var(--claude-border)]/30 hover:text-[var(--claude-text)]"
+                        : filtered[highlightedIndex]?.id === c.id
+                          ? "bg-[var(--claude-border)]/30 text-[var(--claude-text)] ring-1 ring-[var(--claude-accent)]/40"
+                          : "text-[var(--claude-text-secondary)] hover:bg-[var(--claude-border)]/30 hover:text-[var(--claude-text)]"
                     }
                   `}
                 >
