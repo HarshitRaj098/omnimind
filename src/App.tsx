@@ -81,12 +81,22 @@ export default function App() {
       }
 
       if (draftOwnerIdRef.current !== activeId) {
-        const previousKey = draftKey(draftOwnerIdRef.current);
+        const previousOwnerId = draftOwnerIdRef.current;
+        const previousKey = draftKey(previousOwnerId);
         if (input) window.localStorage.setItem(previousKey, input);
         else window.localStorage.removeItem(previousKey);
 
+        const savedNextDraft = window.localStorage.getItem(draftKey(activeId));
+        const legacyDraft = previousOwnerId === null
+          ? window.localStorage.getItem("omnimind:unsent-draft")
+          : null;
+        const nextDraft = savedNextDraft ?? legacyDraft ?? "";
+        if (activeId && savedNextDraft === null && legacyDraft) {
+          window.localStorage.setItem(draftKey(activeId), legacyDraft);
+          window.localStorage.removeItem("omnimind:unsent-draft");
+        }
+
         draftOwnerIdRef.current = activeId;
-        const nextDraft = window.localStorage.getItem(draftKey(activeId)) || "";
         if (nextDraft !== input) setInput(nextDraft);
         return;
       }
