@@ -27,43 +27,41 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   onSend,
   onStop,
   isGenerating,
-  selectedModel,
-  onSelectModel,
   agentMode,
-  setAgentMode,
-  onOpenVoiceModal,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [webSearch, setWebSearch] = useState(true);
+  const [webSearch] = useState(true);
 
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
-    }
+    if (!textareaRef.current) return;
+    textareaRef.current.style.height = "auto";
+    textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
   }, [input]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      if ((input.trim() || attachments.length > 0) && !isGenerating) {
-        onSend(attachments, webSearch);
-        setAttachments([]);
-      }
+  const submit = () => {
+    if ((!input.trim() && attachments.length === 0) || isGenerating) return;
+    onSend(attachments, webSearch);
+    setAttachments([]);
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      submit();
     }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
     if (!files) return;
 
     Array.from(files).forEach((file) => {
       const reader = new FileReader();
       reader.onload = () => {
-        setAttachments((prev) => [
-          ...prev,
+        setAttachments((previous) => [
+          ...previous,
           {
             name: file.name,
             mimeType: file.type || "application/octet-stream",
@@ -74,15 +72,11 @@ export const MessageInput: React.FC<MessageInputProps> = ({
       reader.readAsDataURL(file);
     });
 
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  };
-
-  const removeAttachment = (index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
+    event.target.value = "";
   };
 
   return (
-    <div className="max-w-3xl mx-auto w-full px-4 pb-5">
+    <div className="mx-auto w-full max-w-3xl px-4 pb-4 sm:px-6">
       <input
         type="file"
         ref={fileInputRef}
@@ -92,86 +86,77 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         className="hidden"
       />
 
-      <div
-        className={`relative bg-[var(--claude-bg)] border rounded-xl transition-all ${
-          agentMode
-            ? "border-[var(--claude-accent)]"
-            : "border-[var(--claude-border)] focus-within:border-[var(--claude-text-muted)]"
-        }`}
-      >
-
-
-        {/* Attachment Previews */}
+      <div className="rounded-3xl border border-[var(--claude-border)] bg-[var(--claude-surface)] transition-colors focus-within:border-[var(--claude-text-muted)]">
         {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-2 px-3.5 pt-2.5">
-            {attachments.map((att, idx) => (
+          <div className="flex flex-wrap gap-2 px-4 pt-3">
+            {attachments.map((attachment, index) => (
               <div
-                key={idx}
-                className="flex items-center gap-2 bg-[var(--claude-bg)] border border-[var(--claude-border)] rounded-xl px-2.5 py-1 text-xs"
+                key={`${attachment.name}-${index}`}
+                className="flex max-w-full items-center gap-2 rounded-xl bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text-secondary)]"
               >
-                <AppIcon name="file" size={13} className="text-[var(--claude-accent)]" />
-                <span className="truncate max-w-[130px] text-[var(--claude-text)]">{att.name}</span>
+                <span className="truncate max-w-[220px]">{attachment.name}</span>
                 <button
-                  onClick={() => removeAttachment(idx)}
-                  aria-label={`Remove attachment ${att.name}`}
-                  className="text-[var(--claude-text-muted)] hover:text-rose-500 p-0.5 rounded"
+                  type="button"
+                  onClick={() => setAttachments((previous) => previous.filter((_, itemIndex) => itemIndex !== index))}
+                  aria-label={`Remove attachment ${attachment.name}`}
+                  className="rounded px-1 text-[var(--claude-text-muted)] hover:text-rose-500 focus-visible:outline-2 focus-visible:outline-[var(--claude-accent)]"
                 >
-                  <AppIcon name="close" size={12} />
+                  ×
                 </button>
               </div>
             ))}
           </div>
         )}
 
-        {/* Textarea & Controls */}
-        <div className="flex items-end gap-2 px-3 py-2">
-          <Button
-            size="sm"
-            variant="quiet"
-            icon={<AppIcon name="attach" size={16} />}
+        <div className="flex items-end gap-2 px-3 py-3 sm:px-4">
+          <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
-            title="Attach documents, ZIPs, or images"
-          />
+            aria-label="Attach a file"
+            title="Attach a file"
+            className="mb-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--claude-text-muted)] transition-colors hover:bg-[var(--claude-border-subtle)] hover:text-[var(--claude-text)] focus-visible:outline-2 focus-visible:outline-[var(--claude-accent)]"
+          >
+            <AppIcon name="attach" size={18} />
+          </button>
 
           <textarea
             ref={textareaRef}
             rows={1}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={
-              agentMode
-                ? "Instruct the autonomous agent on a multi-step objective..."
-                : "Message OmniMind..."
-            }
-            className="w-full bg-transparent text-[var(--claude-text)] placeholder-[var(--claude-text-muted)] text-xs sm:text-sm focus:outline-hidden resize-none max-h-[180px] leading-relaxed py-1.5 custom-scrollbar"
+            placeholder={agentMode ? "What should I take care of?" : "Message OmniMind"}
+            aria-label="Message"
+            className="max-h-[180px] min-h-9 w-full resize-none bg-transparent py-2 text-sm leading-6 text-[var(--claude-text)] placeholder:text-[var(--claude-text-muted)] focus:outline-none custom-scrollbar"
           />
 
           {isGenerating ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              icon={<AppIcon name="stop" size={12} />}
+            <button
+              type="button"
               onClick={onStop}
-              title="Stop generation"
-            />
+              aria-label="Stop generating"
+              title="Stop generating"
+              className="mb-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--claude-text)] text-[var(--claude-bg)] transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-[var(--claude-accent)]"
+            >
+              <AppIcon name="stop" size={14} />
+            </button>
           ) : (
-            <Button
-              size="sm"
-              variant="primary"
+            <button
+              type="button"
+              onClick={submit}
               disabled={!input.trim() && attachments.length === 0}
-              icon={<AppIcon name="send" size={14} />}
-              onClick={() => {
-                if (input.trim() || attachments.length > 0) {
-                  onSend(attachments, webSearch);
-                  setAttachments([]);
-                }
-              }}
-              title="Send message (Enter)"
-            />
+              aria-label="Send message"
+              title="Send message"
+              className="mb-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--claude-accent)] text-white transition-colors hover:bg-[var(--claude-accent-hover)] disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--claude-accent)]"
+            >
+              <AppIcon name="send" size={15} />
+            </button>
           )}
         </div>
       </div>
+      <p className="pt-2 text-center text-[11px] text-[var(--claude-text-muted)]">
+        Enter to send · Shift + Enter for a new line
+      </p>
     </div>
   );
 };

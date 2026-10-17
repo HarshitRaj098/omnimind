@@ -454,7 +454,7 @@ export default function App() {
           onOpenMemory={() => setIsMemoryModalOpen(true)}
         />
 
-        <div className="max-w-3xl mx-auto w-full px-4 pb-4">
+        <div className="w-full shrink-0">
           <MessageInput
             input={input}
             setInput={setInput}
