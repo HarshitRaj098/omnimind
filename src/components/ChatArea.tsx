@@ -269,7 +269,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             className="sticky bottom-4 left-1/2 z-10 mx-auto -mt-12 flex items-center gap-2 rounded-full border border-[var(--claude-border)] bg-[var(--claude-surface)] px-3 py-2 text-xs text-[var(--claude-text)] shadow-lg hover:bg-[var(--claude-border-subtle)]"
             aria-label="Jump to latest message"
           >
-            <AppIcon name="arrow-down" size={13} />
+            <AppIcon name="chevron-down" size={13} />
             Latest message
           </button>
         )}
