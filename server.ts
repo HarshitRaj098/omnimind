@@ -598,13 +598,23 @@ app.put("/api/conversations/:id", (req, res) => {
 });
 
 app.delete("/api/conversations/:id", (req, res) => {
+  const id = req.params.id;
   const convs = loadConversations();
-  const remaining = convs.filter(c => c.id !== req.params.id);
-  if (remaining.length === convs.length) {
+  if (!convs.some(conversation => conversation.id === id)) {
     return res.status(404).json({ error: "Conversation not found" });
   }
-  saveConversations(remaining);
-  res.json({ success: true });
+
+  const remaining = convs.filter(conversation => conversation.id !== id);
+  try {
+    // Persist the deletion before acknowledging success. The shared helper logs
+    // write failures but intentionally does not throw, so it cannot confirm this operation.
+    fs.writeFileSync(CONV_FILE, JSON.stringify(remaining, null, 2), "utf-8");
+  } catch (error) {
+    console.error("Failed to persist conversation deletion:", error);
+    return res.status(500).json({ error: "Conversation could not be saved to storage" });
+  }
+
+  return res.json({ success: true, deletedId: id });
 });
 
 // Import/Export
