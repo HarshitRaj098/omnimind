@@ -1,0 +1,83 @@
+[
+  {
+    "id": "gmail",
+    "name": "Google Gmail",
+    "category": "google",
+    "connected": true,
+    "scopes": [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.send"
+    ],
+    "lastConnected": 1792275570276
+  },
+  {
+    "id": "drive",
+    "name": "Google Drive",
+    "category": "google",
+    "connected": true,
+    "scopes": [
+      "https://www.googleapis.com/auth/drive.readonly"
+    ],
+    "lastConnected": 1792275570276
+  },
+  {
+    "id": "docs",
+    "name": "Google Docs",
+    "category": "google",
+    "connected": true,
+    "scopes": [
+      "https://www.googleapis.com/auth/documents"
+    ],
+    "lastConnected": 1792275570276
+  },
+  {
+    "id": "sheets",
+    "name": "Google Sheets",
+    "category": "google",
+    "connected": true,
+    "scopes": [
+      "https://www.googleapis.com/auth/spreadsheets"
+    ],
+    "lastConnected": 1792275570276
+  },
+  {
+    "id": "calendar",
+    "name": "Google Calendar",
+    "category": "google",
+    "connected": true,
+    "scopes": [
+      "https://www.googleapis.com/auth/calendar"
+    ],
+    "lastConnected": 1792275570276
+  },
+  {
+    "id": "tasks",
+    "name": "Google Tasks",
+    "category": "google",
+    "connected": true,
+    "scopes": [
+      "https://www.googleapis.com/auth/tasks"
+    ],
+    "lastConnected": 1792275570276
+  },
+  {
+    "id": "youtube",
+    "name": "YouTube Research & Data",
+    "category": "youtube",
+    "connected": true,
+    "scopes": [
+      "https://www.googleapis.com/auth/youtube.readonly"
+    ],
+    "lastConnected": 1792275570276
+  },
+  {
+    "id": "whatsapp",
+    "name": "WhatsApp Cloud API",
+    "category": "whatsapp",
+    "connected": false,
+    "scopes": [
+      "whatsapp_business_messaging",
+      "whatsapp_business_management"
+    ]
+  }
+]

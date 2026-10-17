@@ -1,0 +1,6 @@
+{
+  "name": "OmniMind AI",
+  "description": "A polished, production-oriented Gemini-style AI assistant with streaming chat, conversation history, and advanced capabilities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

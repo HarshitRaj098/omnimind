@@ -1,0 +1,23 @@
+[
+  {
+    "id": "proj_1",
+    "name": "OmniMind AI Assistant",
+    "purpose": "Universal AI Assistant coordinating persistent memory, Google Workspace, research crawling, and grounding.",
+    "techStack": [
+      "React",
+      "TypeScript",
+      "Tailwind CSS",
+      "Express",
+      "Vite",
+      "@google/genai"
+    ],
+    "decisions": [
+      "Zero AI paradigm: no decorative orbs or filler widgets.",
+      "Database-backed memory stored in server data files.",
+      "Direct Google Search grounding integration with real URL citations."
+    ],
+    "currentMilestone": "Component system polish, persistent memory recall, and Gemini-style search grounding.",
+    "nextStep": "Verification of memory retrieval and connected app write safety confirmations.",
+    "updatedAt": 1792275570276
+  }
+]

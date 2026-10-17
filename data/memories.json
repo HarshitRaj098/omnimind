@@ -1,0 +1,47 @@
+[
+  {
+    "id": "mem_1",
+    "userId": "default_user",
+    "category": "preference",
+    "content": "Prefers concise, production-grade TypeScript with clean modular architecture and Zero AI design paradigm.",
+    "sourceType": "explicit",
+    "consentStatus": "approved",
+    "confidence": 1,
+    "createdAt": 1792102770276,
+    "updatedAt": 1792102770276,
+    "tags": [
+      "coding",
+      "architecture"
+    ]
+  },
+  {
+    "id": "mem_2",
+    "userId": "default_user",
+    "category": "project",
+    "content": "Project OmniMind AI: Full-stack assistant with streaming chat, persistent database-backed memory, Google search grounding, and connected apps.",
+    "sourceType": "explicit",
+    "consentStatus": "approved",
+    "confidence": 1,
+    "createdAt": 1792189170276,
+    "updatedAt": 1792189170276,
+    "tags": [
+      "omnimind",
+      "project"
+    ]
+  },
+  {
+    "id": "mem_3",
+    "userId": "default_user",
+    "category": "instruction",
+    "content": "Always cite sources directly and verify factual statements when search grounding is active.",
+    "sourceType": "explicit",
+    "consentStatus": "approved",
+    "confidence": 0.95,
+    "createdAt": 1792257570276,
+    "updatedAt": 1792257570276,
+    "tags": [
+      "grounding",
+      "citations"
+    ]
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "id": "01-product-design-dna",
+    "name": "Product Design DNA",
+    "description": "Enforces Zero AI Paradigm: purposeful controls, dark neutral tokens, and zero decorative fluff.",
+    "category": "design",
+    "enabled": true,
+    "version": "1.0",
+    "author": "OmniMind Core",
+    "instructions": "Apply strict visual hierarchy. Never suggest floating neon orbs, generic card grids, or filler widgets. Choose clean typography and intentional states.",
+    "requiredCapabilities": [],
+    "createdAt": 1792275570276
+  },
+  {
+    "id": "02-interface-architecture",
+    "name": "Interface Architecture",
+    "description": "Adapts workspaces dynamically for chat, deep research, file inspection, and voice.",
+    "category": "architecture",
+    "enabled": true,
+    "version": "1.0",
+    "author": "OmniMind Core",
+    "instructions": "Structure answers with task-specific layouts: tabular data for records, diff blocks for code, and structured step lists for multi-phase plans.",
+    "requiredCapabilities": [],
+    "createdAt": 1792275570276
+  },
+  {
+    "id": "03-interaction-engineering",
+    "name": "Interaction Engineering",
+    "description": "Provides keyboard shortcuts, responsive feedback, error boundaries, and safe execution.",
+    "category": "engineering",
+    "enabled": true,
+    "version": "1.0",
+    "author": "OmniMind Core",
+    "instructions": "Prioritize low-latency interactions, confirmation steps for destructive actions, and graceful fallback handling.",
+    "requiredCapabilities": [],
+    "createdAt": 1792275570276
+  },
+  {
+    "id": "04-universal-research",
+    "name": "Universal Web & YouTube Research",
+    "description": "Synthesizes web crawl data, YouTube transcripts, and extracted ZIP archives with factual citations.",
+    "category": "research",
+    "enabled": true,
+    "version": "1.0",
+    "author": "OmniMind Core",
+    "instructions": "When conducting research, cross-reference sources, cite URLs explicitly, extract core insights from transcripts, and flag unverified claims.",
+    "requiredCapabilities": [],
+    "createdAt": 1792275570276
+  },
+  {
+    "id": "05-connected-apps-coordinator",
+    "name": "Connected Apps Orchestrator",
+    "description": "Coordinates Google Workspace (Gmail, Drive, Sheets, Calendar) and authorized external APIs.",
+    "category": "workspace",
+    "enabled": true,
+    "version": "1.0",
+    "author": "OmniMind Core",
+    "instructions": "Verify authorized scopes before executing tools. Provide transparent summaries of data retrieved from Drive, Gmail, or Calendar.",
+    "requiredCapabilities": [],
+    "createdAt": 1792275570276
+  }
+]

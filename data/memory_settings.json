@@ -1,0 +1,6 @@
+{
+  "enabled": true,
+  "autoSuggest": true,
+  "requireConsent": false,
+  "retentionDays": 365
+}

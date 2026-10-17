@@ -1,0 +1,158 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --claude-bg: #FAF9F6;
+    --claude-surface: #FFFFFF;
+    --claude-sidebar: #F3F1EC;
+    --claude-card: #FFFFFF;
+    --claude-text: #23221E;
+    --claude-text-secondary: #57554E;
+    --claude-text-muted: #7E7B73;
+    --claude-border: #E5E2DA;
+    --claude-border-subtle: #ECE9E2;
+    --claude-accent: #C66A45;
+    --claude-accent-hover: #B55C37;
+    --claude-accent-subtle: rgba(198, 106, 69, 0.1);
+  }
+
+  .dark {
+    --claude-bg: #0D0D10;
+    --claude-surface: #141418;
+    --claude-sidebar: #101013;
+    --claude-card: #18181D;
+    --claude-text: #F5F5F7;
+    --claude-text-secondary: #B5B5BE;
+    --claude-text-muted: #82828F;
+    --claude-border: #24242B;
+    --claude-border-subtle: #1C1C22;
+    --claude-accent: #D2724D;
+    --claude-accent-hover: #E0825E;
+    --claude-accent-subtle: rgba(210, 114, 77, 0.15);
+  }
+}
+
+/* Custom Component Standard Classes */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.875rem;
+  background-color: var(--claude-accent);
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 0.75rem;
+  transition: all 150ms ease-in-out;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+.btn-primary:hover {
+  background-color: var(--claude-accent-hover);
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.875rem;
+  background-color: transparent;
+  color: var(--claude-text);
+  border: 1px solid var(--claude-border);
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 0.75rem;
+  transition: all 150ms ease-in-out;
+}
+.btn-secondary:hover {
+  background-color: var(--claude-border-subtle);
+}
+
+.btn-quiet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  background-color: transparent;
+  color: var(--claude-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 0.625rem;
+  transition: all 150ms ease-in-out;
+}
+.btn-quiet:hover {
+  color: var(--claude-text);
+  background-color: var(--claude-border-subtle);
+}
+
+.input-standard {
+  background-color: var(--claude-bg);
+  border: 1px solid var(--claude-border);
+  color: var(--claude-text);
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  outline: none;
+  transition: border-color 150ms ease;
+}
+.input-standard:focus {
+  border-color: var(--claude-accent);
+}
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(140, 140, 150, 0.25);
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(140, 140, 150, 0.45);
+}
+
+@layer base {
+  .markdown-body {
+    line-height: 1.6;
+    font-size: 1rem;
+    color: var(--claude-text);
+  }
+  .markdown-body p {
+    margin-bottom: 1.25em;
+  }
+  .markdown-body h1, .markdown-body h2, .markdown-body h3 {
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    font-weight: 600;
+  }
+  .markdown-body ul, .markdown-body ol {
+    margin-bottom: 1.25em;
+    padding-left: 1.5em;
+  }
+  .markdown-body li {
+    margin-bottom: 0.5em;
+  }
+  .markdown-body code {
+    background-color: var(--claude-border-subtle);
+    padding: 0.2em 0.4em;
+    border-radius: 0.25rem;
+    font-size: 0.9em;
+  }
+  .markdown-body pre {
+    background-color: var(--claude-surface);
+    padding: 1rem;
+    border-radius: 0.5rem;
+    overflow-x: auto;
+    margin-bottom: 1.25em;
+  }
+}
