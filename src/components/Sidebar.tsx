@@ -81,17 +81,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         {/* Header */}
         <div className="p-3.5 border-b border-[var(--claude-border)] flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5 px-1">
-            <div className="w-7 h-7 rounded-lg bg-[var(--claude-accent)] flex items-center justify-center text-white shadow-xs">
-              <AppIcon name="sparkles" size={14} />
-            </div>
-            <div>
-              <h1 className="font-semibold text-xs tracking-tight">OmniMind AI</h1>
-              <p className="text-[10px] text-[var(--claude-text-muted)] font-mono">
-                Persona &amp; Knowledge
-              </p>
-            </div>
-          </div>
+          <h1 className="px-1 font-semibold text-sm tracking-tight">OmniMind</h1>
           <Button
             size="sm"
             variant="quiet"
@@ -107,7 +97,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <Button
             variant="primary"
             className="w-full"
-            icon={<AppIcon name="plus" size={14} />}
             onClick={onNewChat}
           >
             New Chat
@@ -151,13 +140,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }
                   `}
                 >
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <AppIcon
-                      name="message"
-                      size={14}
-                      className={isActive ? "text-[var(--claude-accent)] shrink-0" : "text-[var(--claude-text-muted)] shrink-0"}
-                    />
-
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     {isEditing ? (
                       <div
                         className="flex items-center gap-1 flex-1 pr-1"
@@ -193,7 +176,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
 
                   {!isEditing && (
-                    <div className="hidden group-hover:flex items-center gap-1 shrink-0 ml-2">
+                    <div className="hidden group-hover:flex group-focus-within:flex items-center gap-1 shrink-0 ml-2">
                       <button
                         onClick={(e) => startRename(c, e)}
                         className="p-1 text-[var(--claude-text-muted)] hover:text-[var(--claude-text)] rounded-lg hover:bg-[var(--claude-border)]"
@@ -221,7 +204,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <Button
             variant="quiet"
             className="w-full justify-start text-xs"
-            icon={<AppIcon name="brain" size={15} className="text-[var(--claude-accent)]" />}
             onClick={onOpenMemory}
           >
             Persistent Memory
@@ -230,7 +212,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <Button
             variant="quiet"
             className="w-full justify-start text-xs"
-            icon={<AppIcon name="settings" size={15} />}
             onClick={onOpenSettings}
           >
             Settings &amp; Persona
