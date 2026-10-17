@@ -306,13 +306,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
 
                   {!isEditing && (
-                    <div className="hidden group-hover:flex items-center gap-1 shrink-0 ml-2">
+                    <div className="flex md:hidden md:group-hover:flex items-center gap-1 shrink-0 ml-2">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           onTogglePin(c.id, !Boolean(c.pinned));
                         }}
-                        className="p-1 text-[var(--claude-text-muted)] hover:text-[var(--claude-text)] rounded-lg hover:bg-[var(--claude-border)] text-[10px]"
+                        className="min-h-7 min-w-7 p-1 text-[var(--claude-text-muted)] hover:text-[var(--claude-text)] rounded-lg hover:bg-[var(--claude-border)] text-[10px]"
                         title={c.pinned ? "Unpin conversation" : "Pin conversation"}
                         aria-label={c.pinned ? "Unpin conversation" : "Pin conversation"}
                       >
@@ -320,15 +320,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </button>
                       <button
                         onClick={(e) => startRename(c, e)}
-                        className="p-1 text-[var(--claude-text-muted)] hover:text-[var(--claude-text)] rounded-lg hover:bg-[var(--claude-border)]"
+                        className="min-h-7 min-w-7 p-1 text-[var(--claude-text-muted)] hover:text-[var(--claude-text)] rounded-lg hover:bg-[var(--claude-border)]"
                         title="Rename"
+                        aria-label={`Rename ${c.title}`}
                       >
                         <AppIcon name="edit" size={12} />
                       </button>
                       <button
                         onClick={(e) => handleDelete(c.id, e)}
-                        className="p-1 text-[var(--claude-text-muted)] hover:text-rose-500 rounded-lg hover:bg-[var(--claude-border)]"
+                        className="min-h-7 min-w-7 p-1 text-[var(--claude-text-muted)] hover:text-rose-500 rounded-lg hover:bg-[var(--claude-border)]"
                         title="Delete"
+                        aria-label={`Delete ${c.title}`}
                       >
                         <AppIcon name="trash" size={12} />
                       </button>
