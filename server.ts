@@ -666,6 +666,10 @@ app.get("/api/search/conversations", (req, res) => {
     }
   }
 
+  results.sort((a, b) =>
+    Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) ||
+    b.timestamp - a.timestamp
+  );
   res.json(results);
 });
 
