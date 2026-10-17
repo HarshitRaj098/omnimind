@@ -77,7 +77,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     if (!conversation?.messages.length) return;
 
     const escapeMarkdown = (value: string) =>
-      value.replace(/\\r\\n/g, "\\n").replace(/\\r/g, "\\n");
+      value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
     const transcript = [
       `# ${conversation.title || "OmniMind conversation"}`,
@@ -100,7 +100,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           : []),
         "",
       ]),
-    ].join("\\n");
+    ].join("\n");
 
     const blob = new Blob([transcript], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -108,7 +108,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     const safeTitle = (conversation.title || "omnimind-conversation")
       .replace(/[^a-z0-9-_ ]/gi, "")
       .trim()
-      .replace(/\\s+/g, "-")
+      .replace(/\s+/g, "-")
       .slice(0, 80) || "omnimind-conversation";
     anchor.href = url;
     anchor.download = `${safeTitle}.md`;
