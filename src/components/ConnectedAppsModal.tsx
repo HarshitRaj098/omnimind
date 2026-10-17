@@ -51,12 +51,15 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ connected: !currentStatus }),
       });
-      if (res.ok) {
-        const updated = await res.json();
-        setApps((prev) => prev.map((a) => (a.id === id ? updated : a)));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setTestResult(data.error || `Could not update ${id}.`);
+        return;
       }
+      setApps((prev) => prev.map((a) => (a.id === id ? data : a)));
     } catch (e) {
       console.error("Failed to toggle app", e);
+      setTestResult(`Could not update ${id}. Check the server connection.`);
     } finally {
       setLoading(false);
     }
@@ -140,8 +143,8 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
                       <h3 className="font-semibold text-xs text-[var(--claude-text)]">
                         {app.name}
                       </h3>
-                      <p className="text-[10px] text-[var(--claude-text-muted)] font-mono capitalize">
-                        {app.category}
+                      <p className="text-[10px] text-[var(--claude-text-muted)]">
+                        {isConnected ? "Authenticated" : "Authentication not configured"}
                       </p>
                     </div>
                   </div>
@@ -153,11 +156,8 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
                 </div>
 
                 <div className="pt-2 border-t border-[var(--claude-border-subtle)] flex items-center justify-between gap-2">
-                  <span
-                    className="text-[10px] text-[var(--claude-text-muted)] truncate max-w-[150px]"
-                    title={app.scopes.join(", ")}
-                  >
-                    {app.scopes.length} scopes granted
+                  <span className="text-[10px] text-[var(--claude-text-muted)]">
+                    {isConnected ? `${app.scopes.length} requested scopes` : "Setup required"}
                   </span>
 
                   <div className="flex items-center gap-2">
@@ -172,11 +172,11 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
                     )}
                     <Button
                       size="sm"
-                      variant={isConnected ? "danger" : "primary"}
-                      disabled={loading}
+                      variant={isConnected ? "danger" : "secondary"}
+                      disabled={loading || !isConnected}
                       onClick={() => toggleApp(app.id, isConnected)}
                     >
-                      {isConnected ? "Disconnect" : "Connect"}
+                      {isConnected ? "Disconnect" : "Setup pending"}
                     </Button>
                   </div>
                 </div>
