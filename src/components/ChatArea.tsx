@@ -33,6 +33,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   onToggleSidebar,
   isSidebarOpen,
   error,
+  onOpenApps,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -135,6 +136,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         <h2 className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--claude-text-secondary)]">
           {conversation?.title || "OmniMind"}
         </h2>
+        <Button
+          size="sm"
+          variant="quiet"
+          icon={<AppIcon name="apps" size={15} />}
+          onClick={onOpenApps}
+          aria-label="Open connected apps"
+          title="Open connected apps"
+        >
+          Apps
+        </Button>
         {hasMessages && (
           <Button
             size="sm"
