@@ -52,6 +52,7 @@ export default function App() {
   });
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const conversationFetchSequenceRef = useRef(0);
 
   useEffect(() => {
     fetchConversations();
@@ -122,6 +123,7 @@ export default function App() {
         // Remembering the active chat is optional when storage is unavailable.
       }
     } else {
+      conversationFetchSequenceRef.current += 1;
       setActiveConversation(null);
     }
   }, [activeId]);
@@ -163,10 +165,12 @@ export default function App() {
   };
 
   const fetchConversationDetail = async (id: string) => {
+    const requestSequence = ++conversationFetchSequenceRef.current;
     try {
       const res = await fetch(`/api/conversations/${id}`);
       if (res.ok) {
         const data = await res.json();
+        if (requestSequence !== conversationFetchSequenceRef.current) return;
         setActiveConversation(data);
       }
     } catch (e) {
