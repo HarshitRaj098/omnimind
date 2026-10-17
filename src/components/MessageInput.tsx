@@ -32,6 +32,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [webSearch] = useState(true);
 
   useEffect(() => {
@@ -56,10 +57,15 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files) return;
+    setAttachmentError(null);
 
     Array.from(files).forEach((file) => {
       const reader = new FileReader();
       reader.onload = () => {
+        if (typeof reader.result !== "string") {
+          setAttachmentError(`Couldn't read ${file.name}. Please try again.`);
+          return;
+        }
         setAttachments((previous) => [
           ...previous,
           {
@@ -68,6 +74,9 @@ export const MessageInput: React.FC<MessageInputProps> = ({
             data: reader.result as string,
           },
         ]);
+      };
+      reader.onerror = () => {
+        setAttachmentError(`Couldn't read ${file.name}. Please try again.`);
       };
       reader.readAsDataURL(file);
     });
@@ -87,6 +96,11 @@ export const MessageInput: React.FC<MessageInputProps> = ({
       />
 
       <div className="rounded-3xl border border-[var(--claude-border)] bg-[var(--claude-surface)] transition-colors focus-within:border-[var(--claude-text-muted)]">
+        {attachmentError && (
+          <p role="alert" className="px-4 pt-3 text-xs text-rose-500">
+            {attachmentError}
+          </p>
+        )}
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 px-4 pt-3">
             {attachments.map((attachment, index) => (
