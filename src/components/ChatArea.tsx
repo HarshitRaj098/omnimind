@@ -26,285 +26,172 @@ interface ChatAreaProps {
 export const ChatArea: React.FC<ChatAreaProps> = ({
   conversation,
   isGenerating,
-  onSendMessage,
   onRegenerate,
   onRetry,
   onDismissError,
   onToggleSidebar,
   isSidebarOpen,
   error,
-  onShare,
-  onOpenVoice,
-  onOpenSkills,
-  onOpenResearch,
-  onOpenApps,
-  onOpenMemory,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [conversation?.messages, isGenerating]);
 
-  const handleCopy = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const handleCopy = async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      window.setTimeout(() => setCopiedId((current) => current === id ? null : current), 1600);
+    } catch (error) {
+      console.error("Unable to copy message:", error);
+    }
   };
 
   const renderMarkdown = (content: string) => {
     try {
       const rawHtml = marked.parse(content || "");
-      const cleanHtml = DOMPurify.sanitize(rawHtml as string);
-      return { __html: `<div class="markdown-body">${cleanHtml}</div>` };
+      return { __html: DOMPurify.sanitize(rawHtml as string) };
     } catch {
-      return { __html: content };
+      return { __html: DOMPurify.sanitize(content || "") };
     }
   };
 
-  const quickPrompts = [
-    {
-      title: "Write React Component",
-      prompt: "Write a modern, accessible Tailwind modal component in React TypeScript.",
-    },
-    {
-      title: "Summarize Complex Topic",
-      prompt: "Explain how large language models use self-attention mechanisms in simple terms.",
-    },
-    {
-      title: "Brainstorm Product Ideas",
-      prompt: "Give me 5 innovative SaaS product ideas powered by AI for developers.",
-    },
-    {
-      title: "Debug Python Code",
-      prompt: "How do I fix asynchronous concurrency deadlocks in Python asyncio?",
-    },
-  ];
+  const hasMessages = Boolean(conversation?.messages.length);
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[var(--claude-bg)] text-[var(--claude-text)] overflow-hidden relative">
-      {/* Top Header */}
-      <header className="h-14 border-b border-[var(--claude-border)] bg-[var(--claude-bg)] px-4 flex items-center justify-between z-10 shrink-0">
-        <div className="flex items-center gap-3 min-w-0">
-          {!isSidebarOpen && (
-            <Button
-              size="sm"
-              variant="quiet"
-              icon={<AppIcon name="sidebar" size={16} />}
-              onClick={onToggleSidebar}
-              title="Open Sidebar"
-            />
-          )}
-          <div className="flex items-center gap-2 min-w-0">
-            <h2 className="text-xs sm:text-sm font-semibold truncate max-w-[180px] sm:max-w-md">
-              {conversation?.title || "OmniMind AI"}
-            </h2>
-            {conversation?.model && (
-              <span className="hidden sm:inline-flex items-center text-xs text-[var(--claude-text-muted)] font-mono">
-                <span>·</span>
-                <span className="ml-1.5">{conversation.model}</span>
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Simplified Action Controls */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
+    <section className="flex-1 flex flex-col min-h-0 bg-[var(--claude-bg)] text-[var(--claude-text)] overflow-hidden">
+      <header className="h-12 px-3 sm:px-5 flex items-center gap-2 shrink-0">
+        {!isSidebarOpen && (
           <Button
             size="sm"
             variant="quiet"
-            icon={<AppIcon name="settings" size={16} />}
-            title="More Options"
+            icon={<AppIcon name="sidebar" size={16} />}
+            onClick={onToggleSidebar}
+            aria-label="Open conversation history"
+            title="Open conversation history"
           />
-        </div>
+        )}
+        <h2 className="min-w-0 truncate text-sm font-medium text-[var(--claude-text-secondary)]">
+          {conversation?.title || "OmniMind"}
+        </h2>
       </header>
 
-      {/* Main Messages or Empty State */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
-        <div className="max-w-3xl mx-auto px-4 py-8">
-          {!conversation || conversation.messages.length === 0 ? (
-          <div className="max-w-2xl mx-auto h-full flex flex-col items-center justify-center text-center px-4">
-            <div className="w-12 h-12 rounded-2xl bg-[var(--claude-accent)] flex items-center justify-center text-white shadow-xs mb-4">
-              <AppIcon name="sparkles" size={22} />
-            </div>
-            <h3 className="text-lg sm:text-xl font-bold tracking-tight mb-2">
-              How can I assist your work today?
-            </h3>
-            <p className="text-xs text-[var(--claude-text-muted)] max-w-md mb-8 leading-relaxed">
-              Powered by Gemini, persistent cross-session memory, and the regal Dragon Queen persona.
+      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+        {!hasMessages ? (
+          <div className="min-h-full flex flex-col items-center justify-center px-6 pb-12 text-center">
+            <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-[var(--claude-text)]">
+              What can I help with?
+            </h1>
+            <p className="mt-3 max-w-md text-sm leading-6 text-[var(--claude-text-muted)]">
+              Ask a question, explore an idea, or share a file to get started.
             </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
-              {quickPrompts.map((item, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => onSendMessage(item.prompt)}
-                  className="flex flex-col text-left p-3.5 rounded-xl bg-[var(--claude-surface)] border border-[var(--claude-border)] hover:border-[var(--claude-accent)] transition-all group shadow-2xs"
-                >
-                  <span className="font-semibold text-xs text-[var(--claude-text)] group-hover:text-[var(--claude-accent)] transition-colors mb-1">
-                    {item.title}
-                  </span>
-                  <span className="text-[11px] text-[var(--claude-text-muted)] line-clamp-2 leading-relaxed">
-                    {item.prompt}
-                  </span>
-                </button>
-              ))}
-            </div>
           </div>
         ) : (
-          <div className="max-w-3xl mx-auto space-y-7 pb-8">
-            {conversation.messages.map((msg, index) => {
+          <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 pt-5 pb-10 space-y-8">
+            {conversation!.messages.map((msg: Message, index) => {
               const isUser = msg.role === "user";
-              const isLastModel = !isUser && index === conversation.messages.length - 1;
+              const isLastModel = !isUser && index === conversation!.messages.length - 1;
 
               return (
-                <div
-                  key={msg.id}
-                  className={`flex gap-3 sm:gap-4 ${isUser ? "justify-end" : "justify-start"}`}
-                >
-                  {!isUser && (
-                    <div className="w-7 h-7 rounded-lg bg-[var(--claude-accent)] flex items-center justify-center text-white shrink-0 mt-1 shadow-xs">
-                      <AppIcon name="sparkles" size={14} />
-                    </div>
-                  )}
-
-                  <div
-                    className={`group relative max-w-[88%] sm:max-w-[85%] text-xs sm:text-sm leading-relaxed ${
-                      isUser
-                        ? "bg-[var(--claude-sidebar)] px-4 py-2 rounded-2xl"
-                        : "text-[var(--claude-text)]"
-                    }`}
-                  >
+                <article key={msg.id} className={isUser ? "flex justify-end" : "min-w-0"}>
+                  <div className={isUser
+                    ? "group relative max-w-[90%] sm:max-w-[82%] rounded-3xl bg-[var(--claude-sidebar)] px-4 py-3 text-sm leading-6"
+                    : "group relative min-w-0 max-w-none text-[var(--claude-text)] text-[15px] leading-7"
+                  }>
                     {isUser ? (
-                      <div className="whitespace-pre-wrap">{msg.content}</div>
+                      <div className="whitespace-pre-wrap break-words">{msg.content}</div>
                     ) : (
                       <div
-                        className="markdown-body prose prose-sm dark:prose-invert max-w-none text-xs sm:text-sm leading-relaxed"
+                        className="markdown-body"
                         dangerouslySetInnerHTML={renderMarkdown(msg.content)}
                       />
                     )}
 
-                    {/* Gemini Grounding & Verified Sources Tray */}
-                    {!isUser && msg.grounding && (msg.grounding.sources?.length || msg.grounding.queries?.length) && (
-                      <div className="mt-3 pt-2.5 border-t border-[var(--claude-border)]/60 space-y-2">
-                        {msg.grounding.queries && msg.grounding.queries.length > 0 && (
-                          <div className="flex items-center gap-1.5 text-[11px] text-[var(--claude-text-muted)] font-mono">
-                            <AppIcon name="search" size={12} className="text-[var(--claude-accent)]" />
-                            <span>Grounded query:</span>
-                            <span className="text-[var(--claude-text-secondary)] italic truncate max-w-xs sm:max-w-md">
-                              "{msg.grounding.queries.join('", "')}"
-                            </span>
-                          </div>
-                        )}
-
-                        {msg.grounding.sources && msg.grounding.sources.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5 items-center">
-                            <span className="text-[10px] text-[var(--claude-text-muted)] font-medium mr-1 flex items-center gap-1">
-                              <AppIcon name="globe" size={12} className="text-[var(--claude-accent)]" />
-                              Sources:
-                            </span>
-                            {msg.grounding.sources.map((src, i) => (
-                              <a
-                                key={i}
-                                href={src.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[var(--claude-surface)] border border-[var(--claude-border)] hover:border-[var(--claude-accent)] hover:text-[var(--claude-accent)] text-[11px] text-[var(--claude-text-secondary)] transition-colors group/link"
-                                title={src.title}
-                              >
-                                <span className="font-semibold text-[10px] text-[var(--claude-accent)]">
-                                  {i + 1}
-                                </span>
-                                <span className="truncate max-w-[130px] sm:max-w-[180px]">
-                                  {src.title || src.domain}
-                                </span>
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                    {!isUser && msg.grounding && (
+                      (msg.grounding.sources?.length || msg.grounding.queries?.length) ? (
+                        <div className="mt-4 border-t border-[var(--claude-border)] pt-3 text-xs text-[var(--claude-text-muted)]">
+                          {msg.grounding.queries?.length ? (
+                            <p className="mb-2">Searched: {msg.grounding.queries.join(" · ")}</p>
+                          ) : null}
+                          {msg.grounding.sources?.length ? (
+                            <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                              {msg.grounding.sources.map((source, sourceIndex) => (
+                                <a
+                                  key={source.url || sourceIndex}
+                                  href={source.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="underline decoration-[var(--claude-border)] underline-offset-4 hover:text-[var(--claude-accent)]"
+                                  title={source.title}
+                                >
+                                  {source.title || source.domain || `Source ${sourceIndex + 1}`}
+                                </a>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null
                     )}
 
-                    {/* Message Actions */}
-                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-[var(--claude-border)]/50 text-[var(--claude-text-muted)] text-[10px]">
-                      <span>
-                        {new Date(msg.timestamp).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
-
-                      <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button
-                          size="sm"
-                          variant="quiet"
-                          icon={<AppIcon name={copiedId === msg.id ? "check" : "copy"} size={13} />}
+                    <div className="mt-2 flex min-h-7 items-center gap-2 text-[11px] text-[var(--claude-text-muted)]">
+                      <time dateTime={new Date(msg.timestamp).toISOString()} className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </time>
+                      <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                        <button
+                          type="button"
                           onClick={() => handleCopy(msg.content, msg.id)}
-                          title="Copy text"
-                        />
-
+                          aria-label={copiedId === msg.id ? "Copied message" : "Copy message"}
+                          title={copiedId === msg.id ? "Copied" : "Copy"}
+                          className="rounded-md px-2 py-1 hover:bg-[var(--claude-border-subtle)] hover:text-[var(--claude-text)] focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[var(--claude-accent)]"
+                        >
+                          {copiedId === msg.id ? "Copied" : "Copy"}
+                        </button>
                         {isLastModel && !isGenerating && (
-                          <Button
-                            size="sm"
-                            variant="quiet"
-                            icon={<AppIcon name="regenerate" size={13} />}
+                          <button
+                            type="button"
                             onClick={onRegenerate}
-                            title="Regenerate"
-                          />
+                            className="rounded-md px-2 py-1 hover:bg-[var(--claude-border-subtle)] hover:text-[var(--claude-text)] focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[var(--claude-accent)]"
+                            title="Regenerate response"
+                          >
+                            Retry
+                          </button>
                         )}
                       </div>
                     </div>
                   </div>
-
-                  {isUser && (
-                    <div className="w-7 h-7 rounded-lg bg-[var(--claude-border)] flex items-center justify-center text-[var(--claude-text)] shrink-0 mt-1">
-                      <AppIcon name="user" size={14} />
-                    </div>
-                  )}
-                </div>
+                </article>
               );
             })}
 
-            {/* Generating State */}
             {isGenerating && (
-              <div className="flex gap-4 items-center text-xs text-[var(--claude-text-muted)]">
-                <div className="w-7 h-7 rounded-lg bg-[var(--claude-accent)] flex items-center justify-center text-white shrink-0">
-                  <AppIcon name="sparkles" size={14} />
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-[var(--claude-accent)] animate-pulse" />
-                  <span>OmniMind is formulating a response...</span>
-                </div>
+              <div className="py-1 text-sm text-[var(--claude-text-muted)]" role="status" aria-live="polite">
+                Thinking…
               </div>
             )}
 
             {error && (
-              <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-3 flex items-center justify-between gap-3 text-rose-500 text-xs max-w-lg mx-auto">
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <AppIcon name="error" size={16} className="shrink-0" />
-                  <span className="leading-relaxed">{error}</span>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {onRetry && (
-                    <Button size="sm" variant="secondary" onClick={onRetry} className="text-xs">
-                      Retry
-                    </Button>
-                  )}
-                  {onDismissError && (
-                    <Button size="sm" variant="quiet" onClick={onDismissError} className="text-xs">
-                      Dismiss
-                    </Button>
-                  )}
-                </div>
+              <div className="flex flex-wrap items-center gap-3 border-t border-[var(--claude-border)] pt-3 text-sm text-rose-500" role="alert">
+                <p className="min-w-0 flex-1">{error}</p>
+                {onRetry && (
+                  <button type="button" onClick={onRetry} className="underline underline-offset-4 hover:no-underline">
+                    Retry
+                  </button>
+                )}
+                {onDismissError && (
+                  <button type="button" onClick={onDismissError} className="underline underline-offset-4 hover:no-underline">
+                    Dismiss
+                  </button>
+                )}
               </div>
             )}
-
             <div ref={messagesEndRef} />
           </div>
         )}
-        </div>
       </div>
-    </div>
+    </section>
   );
 };
