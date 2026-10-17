@@ -34,11 +34,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   error,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+
+  const handleScroll = () => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    setIsAtBottom(
+      container.scrollHeight - container.scrollTop - container.clientHeight < 96
+    );
+  };
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [conversation?.messages, isGenerating]);
+    if (isAtBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }, [conversation?.messages, isGenerating, isAtBottom]);
 
   const handleCopy = async (text: string, id: string) => {
     try {
@@ -135,7 +147,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         )}
       </header>
 
-      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="relative flex-1 min-h-0 overflow-y-auto custom-scrollbar">
         {!hasMessages ? (
           <div className="min-h-full flex flex-col items-center justify-center px-6 pb-12 text-center">
             <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-[var(--claude-text)]">
@@ -246,6 +258,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             )}
             <div ref={messagesEndRef} />
           </div>
+        )}
+        {!isAtBottom && hasMessages && (
+          <button
+            type="button"
+            onClick={() => {
+              setIsAtBottom(true);
+              messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+            }}
+            className="sticky bottom-4 left-1/2 z-10 mx-auto -mt-12 flex items-center gap-2 rounded-full border border-[var(--claude-border)] bg-[var(--claude-surface)] px-3 py-2 text-xs text-[var(--claude-text)] shadow-lg hover:bg-[var(--claude-border-subtle)]"
+            aria-label="Jump to latest message"
+          >
+            <AppIcon name="arrow-down" size={13} />
+            Latest message
+          </button>
         )}
       </div>
     </section>
