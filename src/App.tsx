@@ -259,23 +259,24 @@ export default function App() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title: (text || "Chat Session").substring(0, 30), model: settings.model })
         });
-        if (res.ok) {
-          const newConv = await res.json();
-          currentConvId = newConv.id;
-          setActiveId(newConv.id);
-          setConversations(prev => [{
-            id: newConv.id,
-            title: newConv.title,
-            model: newConv.model,
-            updatedAt: newConv.updatedAt,
-            createdAt: newConv.createdAt,
-            messageCount: 1
-          }, ...prev]);
-        }
+        if (!res.ok) throw new Error("Conversation creation failed");
+        const newConv = await res.json();
+        if (!newConv?.id) throw new Error("Conversation response did not include an ID");
+        currentConvId = newConv.id;
+        setActiveId(newConv.id);
+        setConversations(prev => [{
+          id: newConv.id,
+          title: newConv.title,
+          model: newConv.model,
+          updatedAt: newConv.updatedAt,
+          createdAt: newConv.createdAt,
+          messageCount: 1
+        }, ...prev]);
       } catch (e) {
         console.error("Failed to create conversation:", e);
+        setInput(text);
         setIsGenerating(false);
-        setError("Failed to create conversation.");
+        setError("Couldn't start a new chat. Your message is still here—please try again.");
         return;
       }
     }
