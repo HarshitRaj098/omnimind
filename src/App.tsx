@@ -208,20 +208,22 @@ export default function App() {
   const handleDeleteConversation = async (id: string) => {
     try {
       const res = await fetch(`/api/conversations/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        setConversations(prev => prev.filter(c => c.id !== id));
-        if (activeId === id) {
-          const remaining = conversations.filter(c => c.id !== id);
-          if (remaining.length > 0) {
-            setActiveId(remaining[0].id);
-          } else {
-            setActiveId(null);
-            setActiveConversation(null);
-          }
+      if (!res.ok) throw new Error("Conversation deletion failed");
+
+      setConversations(prev => prev.filter(c => c.id !== id));
+      if (activeId === id) {
+        const remaining = conversations.filter(c => c.id !== id);
+        if (remaining.length > 0) {
+          setActiveId(remaining[0].id);
+        } else {
+          setActiveId(null);
+          setActiveConversation(null);
         }
       }
+      setError(null);
     } catch (e) {
       console.error("Failed to delete conversation:", e);
+      setError("Couldn't delete this conversation. Check your connection and try again.");
     }
   };
 
