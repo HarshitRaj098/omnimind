@@ -409,7 +409,13 @@ export default function App() {
       fetchConversations();
     } catch (err: any) {
       if (err.name === "AbortError") {
-        console.log("Generation stopped by user");
+        setActiveConversation(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            messages: prev.messages.filter(m => m.id !== modelMsgId || Boolean(m.content?.trim()))
+          };
+        });
       } else {
         console.error("Chat stream error:", err);
         setError(err.message || "An error occurred while generating response.");
