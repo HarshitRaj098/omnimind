@@ -91,6 +91,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         searchInputRef.current?.select();
       }
 
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "o") {
+        event.preventDefault();
+        onNewChat();
+      }
+
       if (event.key === "Escape" && document.activeElement === searchInputRef.current) {
         if (search) {
           setSearch("");
@@ -103,7 +108,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [search]);
+  }, [search, onNewChat]);
 
   const selectConversation = (id: string) => {
     onSelect(id);
