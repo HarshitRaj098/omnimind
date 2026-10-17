@@ -185,22 +185,23 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: "New Chat", model: settings.model })
       });
-      if (res.ok) {
-        const newConv = await res.json();
-        setConversations(prev => [{
-          id: newConv.id,
-          title: newConv.title,
-          model: newConv.model,
-          updatedAt: newConv.updatedAt,
-          createdAt: newConv.createdAt,
-          messageCount: 0
-        }, ...prev]);
-        setActiveId(newConv.id);
-        setActiveConversation(newConv);
-        setError(null);
-      }
+      if (!res.ok) throw new Error("Conversation creation failed");
+      const newConv = await res.json();
+      if (!newConv?.id) throw new Error("Conversation response did not include an ID");
+      setConversations(prev => [{
+        id: newConv.id,
+        title: newConv.title,
+        model: newConv.model,
+        updatedAt: newConv.updatedAt,
+        createdAt: newConv.createdAt,
+        messageCount: 0
+      }, ...prev]);
+      setActiveId(newConv.id);
+      setActiveConversation(newConv);
+      setError(null);
     } catch (e) {
       console.error("Failed to create conversation:", e);
+      setError("Couldn't create a new chat. Check your connection and try again.");
     }
   };
 
