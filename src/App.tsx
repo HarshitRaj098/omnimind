@@ -58,17 +58,50 @@ export default function App() {
     fetchSettings();
   }, []);
 
+  const draftOwnerIdRef = useRef<string | null>(null);
+  const draftInitializedRef = useRef(false);
+
   useEffect(() => {
+    const draftKey = (conversationId: string | null) =>
+      conversationId
+        ? `omnimind:unsent-draft:${conversationId}`
+        : "omnimind:unsent-draft";
+
     try {
-      if (input) {
+      if (!draftInitializedRef.current) {
+        draftInitializedRef.current = true;
+        draftOwnerIdRef.current = activeId;
+        if (activeId) {
+          const savedDraft = window.localStorage.getItem(draftKey(activeId));
+          const legacyDraft = window.localStorage.getItem("omnimind:unsent-draft");
+          const restoredDraft = savedDraft ?? legacyDraft ?? "";
+          if (restoredDraft !== input) setInput(restoredDraft);
+        }
+        return;
+      }
+
+      if (draftOwnerIdRef.current !== activeId) {
+        const previousKey = draftKey(draftOwnerIdRef.current);
+        if (input) window.localStorage.setItem(previousKey, input);
+        else window.localStorage.removeItem(previousKey);
+
+        draftOwnerIdRef.current = activeId;
+        const nextDraft = window.localStorage.getItem(draftKey(activeId)) || "";
+        if (nextDraft !== input) setInput(nextDraft);
+        return;
+      }
+
+      if (input) window.localStorage.setItem(draftKey(activeId), input);
+      else window.localStorage.removeItem(draftKey(activeId));
+
+      // Keep the legacy key in sync only for the no-conversation composer.
+      if (!activeId && input) {
         window.localStorage.setItem("omnimind:unsent-draft", input);
-      } else {
-        window.localStorage.removeItem("omnimind:unsent-draft");
       }
     } catch {
       // Draft recovery is optional when browser storage is unavailable.
     }
-  }, [input]);
+  }, [activeId, input]);
 
   useEffect(() => {
     if (activeId) {
