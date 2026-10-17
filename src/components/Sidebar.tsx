@@ -37,6 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<ConversationSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -47,12 +48,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (!query) {
       setSearchResults([]);
       setIsSearching(false);
+      setSearchError(false);
       return;
     }
 
     let cancelled = false;
     setSearchResults([]);
     setIsSearching(true);
+    setSearchError(false);
     const timeout = window.setTimeout(async () => {
       try {
         const response = await fetch(
@@ -62,7 +65,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         const results = await response.json();
         if (!cancelled) setSearchResults(results);
       } catch (error) {
-        if (!cancelled) setSearchResults([]);
+        if (!cancelled) {
+          setSearchResults([]);
+          setSearchError(true);
+        }
         console.error("Failed to search conversations:", error);
       } finally {
         if (!cancelled) setIsSearching(false);
@@ -217,9 +223,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="text-center py-8 text-[var(--claude-text-muted)] text-xs px-4">
               {isSearching
                 ? "Searching conversations..."
-                : search
-                  ? "No matching conversations"
-                  : "No recent conversations."}
+                : searchError
+                  ? "Search failed. Check your connection and try again."
+                  : search
+                    ? "No matching conversations"
+                    : "No recent conversations."}
             </div>
           ) : (
             filtered.map((c) => {
