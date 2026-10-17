@@ -598,9 +598,12 @@ app.put("/api/conversations/:id", (req, res) => {
 });
 
 app.delete("/api/conversations/:id", (req, res) => {
-  let convs = loadConversations();
-  convs = convs.filter(c => c.id !== req.params.id);
-  saveConversations(convs);
+  const convs = loadConversations();
+  const remaining = convs.filter(c => c.id !== req.params.id);
+  if (remaining.length === convs.length) {
+    return res.status(404).json({ error: "Conversation not found" });
+  }
+  saveConversations(remaining);
   res.json({ success: true });
 });
 

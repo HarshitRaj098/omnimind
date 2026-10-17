@@ -205,10 +205,12 @@ export default function App() {
     }
   };
 
-  const handleDeleteConversation = async (id: string) => {
+  const handleDeleteConversation = async (id: string): Promise<boolean> => {
     try {
       const res = await fetch(`/api/conversations/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Conversation deletion failed");
+      const result = await res.json();
+      if (result?.success !== true) throw new Error("Conversation deletion was not confirmed");
 
       setConversations(prev => prev.filter(c => c.id !== id));
       if (activeId === id) {
@@ -221,9 +223,11 @@ export default function App() {
         }
       }
       setError(null);
+      return true;
     } catch (e) {
       console.error("Failed to delete conversation:", e);
       setError("Couldn't delete this conversation. Check your connection and try again.");
+      return false;
     }
   };
 
