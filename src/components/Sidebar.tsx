@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ConversationSummary } from "../types";
 import { Button, Input } from "./ui";
 import { AppIcon } from "./AppIcon";
@@ -16,7 +16,7 @@ interface SidebarProps {
   onOpenMemory: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({
+interface ConversationSearchResult extends ConversationSummary {\n  snippet: string;\n}\n\nexport const Sidebar: React.FC<SidebarProps> = ({
   conversations,
   activeId,
   onSelect,
@@ -32,9 +32,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
 
-  const filtered = conversations.filter((c) =>
-    c.title.toLowerCase().includes(search.toLowerCase())
-  );
+  useEffect(() => {
+    const query = search.trim();
+    if (!query) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timeout = window.setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const response = await fetch(
+          `/api/search/conversations?q=${encodeURIComponent(query)}`
+        );
+        if (!response.ok) throw new Error("Conversation search failed");
+        const results = await response.json();
+        if (!cancelled) setSearchResults(results);
+      } catch (error) {
+        if (!cancelled) setSearchResults([]);
+        console.error("Failed to search conversations:", error);
+      } finally {
+        if (!cancelled) setIsSearching(false);
+      }
+    }, 180);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [search]);
+
+  const filtered = search.trim() ? searchResults : conversations;
 
   const startRename = (c: ConversationSummary, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -128,7 +158,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex-1 overflow-y-auto px-2 py-1 space-y-0.5 custom-scrollbar">
           {filtered.length === 0 ? (
             <div className="text-center py-8 text-[var(--claude-text-muted)] text-xs px-4">
-              {search ? "No matching conversations" : "No recent conversations."}
+              {isSearching
+                ? "Searching conversations..."
+                : search
+                  ? "No matching conversations"
+                  : "No recent conversations."}
             </div>
           ) : (
             filtered.map((c) => {
@@ -188,7 +222,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         </button>
                       </div>
                     ) : (
-                      <span className="truncate flex-1">{c.title}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">{c.title}</span>
+                        {search.trim() && "snippet" in c && (
+                          <span className="mt-0.5 block truncate text-[10px] font-normal text-[var(--claude-text-muted)]">
+                            {c.snippet}
+                          </span>
+                        )}
+                      </span>
                     )}
                   </div>
 
