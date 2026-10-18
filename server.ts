@@ -3899,7 +3899,7 @@ app.post("/api/chat/stream", async (req, res) => {
       timestamp: Date.now(),
       grounding: capturedGrounding || undefined,
       pendingActions: pendingActionsForMessage
-    } as Message);
+    } as Message;
     conv.messages.push(modelMsg);
     conv.updatedAt = Date.now();
     saveConversations(convs);
