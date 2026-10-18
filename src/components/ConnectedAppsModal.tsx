@@ -26,6 +26,11 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
   const [testResult, setTestResult] = useState<string | null>(null);
   const [googleOAuthConfigured, setGoogleOAuthConfigured] = useState(false);
   const [googleAccountEmail, setGoogleAccountEmail] = useState<string | null>(null);
+  const [workspaceQuery, setWorkspaceQuery] = useState("");
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [gmailMessages, setGmailMessages] = useState<Array<{ id: string; subject: string; from: string; date: string; snippet: string }>>([]);
+  const [driveFiles, setDriveFiles] = useState<Array<{ id: string; name: string; mimeType?: string; modifiedTime?: string; webViewLink?: string }>>([]);
 
   useEffect(() => {
     if (isOpen) {
@@ -49,6 +54,40 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
   };
 
   const connectGoogle = () => window.location.assign("/api/apps/google/connect");
+
+  const loadInbox = async () => {
+    setWorkspaceLoading(true);
+    setWorkspaceError(null);
+    setDriveFiles([]);
+    try {
+      const response = await fetch("/api/apps/gmail/messages?limit=10", { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not read Gmail inbox.");
+      setGmailMessages(Array.isArray(data.messages) ? data.messages : []);
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : "Could not read Gmail inbox.");
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  };
+
+  const searchDrive = async () => {
+    if (!workspaceQuery.trim()) return;
+    setWorkspaceLoading(true);
+    setWorkspaceError(null);
+    setGmailMessages([]);
+    try {
+      const response = await fetch(`/api/apps/drive/files?q=${encodeURIComponent(workspaceQuery.trim())}`, { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not search Google Drive.");
+      setDriveFiles(Array.isArray(data.files) ? data.files : []);
+      if (!Array.isArray(data.files) || data.files.length === 0) setWorkspaceError("No matching Drive files found.");
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : "Could not search Google Drive.");
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  };
 
   const disconnectGoogle = async () => {
     setLoading(true);
@@ -141,7 +180,58 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
             <Button size="sm" variant="primary" disabled={!googleOAuthConfigured || loading} onClick={connectGoogle}>Connect Google</Button>
           )}
         </div>
-        {testResult && (
+
+        <div className="rounded-xl border border-[var(--claude-border)] bg-[var(--claude-surface)] p-4 space-y-3">
+          <div>
+            <h3 className="text-xs font-semibold text-[var(--claude-text)]">Google Workspace tools</h3>
+            <p className="mt-1 text-[11px] text-[var(--claude-text-muted)]">Read your inbox or search Drive using the account you authorized above. These actions are read-only.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" disabled={loading || !googleAccountEmail} onClick={() => void loadInbox()}>
+              Read recent inbox
+            </Button>
+            <input
+              value={workspaceQuery}
+              onChange={(event) => setWorkspaceQuery(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") void searchDrive(); }}
+              placeholder="Search Drive file names"
+              aria-label="Search Google Drive file names"
+              className="min-w-0 flex-1 rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)] outline-none focus:border-[var(--claude-text-muted)]"
+            />
+            <Button size="sm" variant="secondary" disabled={loading || !googleAccountEmail || !workspaceQuery.trim()} onClick={() => void searchDrive()}>
+              Search Drive
+            </Button>
+          </div>
+          {workspaceError && <p role="alert" className="text-xs text-red-400">{workspaceError}</p>}
+          {gmailMessages.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[10px] uppercase tracking-wider text-[var(--claude-text-muted)]">Recent Gmail messages</p>
+              {gmailMessages.map(message => (
+                <div key={message.id} className="rounded-lg border border-[var(--claude-border-subtle)] p-3">
+                  <p className="text-xs font-medium text-[var(--claude-text)]">{message.subject}</p>
+                  <p className="mt-1 text-[10px] text-[var(--claude-text-muted)]">{message.from}{message.date ? ` · ${message.date}` : ""}</p>
+                  <p className="mt-1 text-xs text-[var(--claude-text-secondary)]">{message.snippet}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {driveFiles.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[10px] uppercase tracking-wider text-[var(--claude-text-muted)]">Google Drive results</p>
+              {driveFiles.map(file => (
+                <div key={file.id} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--claude-border-subtle)] p-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-medium text-[var(--claude-text)]">{file.name}</p>
+                    <p className="text-[10px] text-[var(--claude-text-muted)]">{file.mimeType || "Google Drive file"}{file.modifiedTime ? ` · Updated ${new Date(file.modifiedTime).toLocaleDateString()}` : ""}</p>
+                  </div>
+                  {file.webViewLink && <a className="shrink-0 text-xs underline text-[var(--claude-text-secondary)]" href={file.webViewLink} target="_blank" rel="noreferrer">Open</a>}
+                </div>
+              ))}
+              {driveFiles.length === 0 && <p className="text-xs text-[var(--claude-text-muted)]">No matching files.</p>}
+            </div>
+          )}
+        </div>
+\n        {testResult && (
           <div className="p-3 rounded-xl bg-[var(--claude-bg)] border border-[var(--claude-border)] text-xs font-mono text-[var(--claude-text-secondary)]">
             {testResult}
           </div>
