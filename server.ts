@@ -977,6 +977,145 @@ app.put("/api/memories/settings", (req, res) => {
   res.json(updated);
 });
 
+// Full OmniMind workspace backup. Authentication tokens and binary attachment payloads are deliberately excluded.
+app.get("/api/workspace/export", (_req, res) => {
+  const conversations = loadConversations().map(conversation => ({
+    ...conversation,
+    messages: conversation.messages.map(message => ({
+      ...message,
+      attachments: message.attachments?.map(({ name, mimeType }) => ({ name, mimeType }))
+    }))
+  }));
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Disposition", 'attachment; filename="omnimind-workspace-backup.json"');
+  return res.json({
+    format: "omnimind-workspace-backup",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    conversations,
+    memories: loadMemories(),
+    projects: loadProjects(),
+    skills: loadSkills(),
+    scheduledTasks: loadScheduledTasks().map(task => ({ ...task, enabled: false })),
+    memorySettings: loadMemorySettings(),
+    note: "OAuth tokens, API keys, and attachment binary data are excluded. Imported scheduled tasks are disabled for safety."
+  });
+});
+
+app.post("/api/workspace/import", (req, res) => {
+  const backup = req.body;
+  if (!backup || backup.format !== "omnimind-workspace-backup" || backup.version !== 1) {
+    return res.status(400).json({ error: "Unsupported backup. Select an OmniMind workspace backup JSON file." });
+  }
+  const incomingConversations = Array.isArray(backup.conversations) ? backup.conversations : [];
+  const incomingMemories = Array.isArray(backup.memories) ? backup.memories : [];
+  const incomingProjects = Array.isArray(backup.projects) ? backup.projects : [];
+  const incomingSkills = Array.isArray(backup.skills) ? backup.skills : [];
+  const incomingTasks = Array.isArray(backup.scheduledTasks) ? backup.scheduledTasks : [];
+  const totalIncoming = incomingConversations.length + incomingMemories.length + incomingProjects.length + incomingSkills.length + incomingTasks.length;
+  if (totalIncoming > 10000) return res.status(413).json({ error: "Workspace backup exceeds the 10,000-record import limit." });
+
+  const conversations = loadConversations();
+  const knownConversationIds = new Set(conversations.map(item => item.id));
+  let conversationsImported = 0;
+  for (const item of incomingConversations) {
+    if (!item || typeof item.title !== "string" || !Array.isArray(item.messages) || item.messages.length > 20000) continue;
+    const id = "conv_import_" + randomBytes(10).toString("hex");
+    conversations.unshift({
+      id,
+      title: item.title.slice(0, 200),
+      model: typeof item.model === "string" ? item.model.slice(0, 120) : "gemini-2.5-flash",
+      personaOverride: typeof item.personaOverride === "string" ? item.personaOverride : undefined,
+      pinned: false,
+      messages: item.messages.filter((m: any) => m && (m.role === "user" || m.role === "model") && typeof m.content === "string").map((m: any) => ({
+        id: "msg_import_" + randomBytes(8).toString("hex"),
+        role: m.role,
+        content: m.content.slice(0, 200000),
+        timestamp: Number.isFinite(m.timestamp) ? m.timestamp : Date.now(),
+        attachments: Array.isArray(m.attachments) ? m.attachments.filter((a: any) => a && typeof a.name === "string").map((a: any) => ({ name: a.name.slice(0, 255), mimeType: typeof a.mimeType === "string" ? a.mimeType.slice(0, 120) : "application/octet-stream" })) : undefined
+      })),
+      createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now(),
+      updatedAt: Date.now()
+    });
+    knownConversationIds.add(id);
+    conversationsImported++;
+  }
+  if (conversationsImported) saveConversations(conversations);
+
+  const memories = loadMemories();
+  const knownMemories = new Set(memories.map(item => item.content.trim().toLowerCase()));
+  let memoriesImported = 0;
+  for (const item of incomingMemories) {
+    const content = typeof item?.content === "string" ? item.content.trim() : "";
+    if (!content || content.length > 12000 || knownMemories.has(content.toLowerCase())) continue;
+    memories.unshift({
+      id: "mem_import_" + randomBytes(8).toString("hex"), userId: "default_user",
+      category: ["preference", "project", "instruction", "context"].includes(item.category) ? item.category : "context",
+      content, sourceType: "explicit", consentStatus: "approved", confidence: 0.8,
+      createdAt: Date.now(), updatedAt: Date.now(),
+      tags: [...new Set([...(Array.isArray(item.tags) ? item.tags.filter((tag: unknown): tag is string => typeof tag === "string").slice(0, 20) : []), "workspace-import"])]
+    });
+    knownMemories.add(content.toLowerCase());
+    memoriesImported++;
+  }
+  if (memoriesImported) saveMemories(memories);
+
+  const projects = loadProjects();
+  const projectNames = new Set(projects.map(item => item.name.trim().toLowerCase()));
+  let projectsImported = 0;
+  for (const item of incomingProjects) {
+    if (!item || typeof item.name !== "string" || !item.name.trim() || projectNames.has(item.name.trim().toLowerCase())) continue;
+    projects.unshift({
+      id: "proj_import_" + randomBytes(8).toString("hex"), name: item.name.slice(0, 200),
+      purpose: typeof item.purpose === "string" ? item.purpose.slice(0, 4000) : "",
+      techStack: Array.isArray(item.techStack) ? item.techStack.filter((v: unknown): v is string => typeof v === "string").slice(0, 50) : [],
+      decisions: Array.isArray(item.decisions) ? item.decisions.filter((v: unknown): v is string => typeof v === "string").slice(0, 100) : [],
+      currentMilestone: typeof item.currentMilestone === "string" ? item.currentMilestone.slice(0, 1000) : "",
+      nextStep: typeof item.nextStep === "string" ? item.nextStep.slice(0, 1000) : "",
+      updatedAt: Date.now()
+    });
+    projectNames.add(item.name.trim().toLowerCase());
+    projectsImported++;
+  }
+  if (projectsImported) saveProjects(projects);
+
+  const skills = loadSkills();
+  const skillNames = new Set(skills.map(item => item.name.trim().toLowerCase()));
+  let skillsImported = 0;
+  for (const item of incomingSkills) {
+    if (!item || typeof item.name !== "string" || typeof item.instructions !== "string" || !item.name.trim() || skillNames.has(item.name.trim().toLowerCase())) continue;
+    skills.push({
+      id: "skill_import_" + randomBytes(8).toString("hex"), name: item.name.slice(0, 120),
+      description: typeof item.description === "string" ? item.description.slice(0, 1000) : "",
+      category: typeof item.category === "string" ? item.category.slice(0, 80) : "imported",
+      enabled: false, version: "imported", author: "Workspace import",
+      instructions: item.instructions.slice(0, 12000),
+      requiredCapabilities: Array.isArray(item.requiredCapabilities) ? item.requiredCapabilities.filter((v: unknown): v is string => typeof v === "string").slice(0, 30) : [],
+      createdAt: Date.now()
+    });
+    skillNames.add(item.name.trim().toLowerCase());
+    skillsImported++;
+  }
+  if (skillsImported) saveSkills(skills);
+
+  const tasks = loadScheduledTasks();
+  const taskTitles = new Set(tasks.map(item => item.title.trim().toLowerCase()));
+  let tasksImported = 0;
+  for (const item of incomingTasks) {
+    if (!item || typeof item.title !== "string" || typeof item.prompt !== "string" || taskTitles.has(item.title.trim().toLowerCase())) continue;
+    tasks.push({
+      id: "task_import_" + randomBytes(8).toString("hex"), title: item.title.slice(0, 120),
+      prompt: item.prompt.slice(0, 2000), frequency: ["once", "daily", "weekly"].includes(item.frequency) ? item.frequency : "once",
+      nextRunAt: Date.now() + 86400000, enabled: false, createdAt: Date.now(), runCount: 0
+    });
+    taskTitles.add(item.title.trim().toLowerCase());
+    tasksImported++;
+  }
+  if (tasksImported) saveScheduledTasks(tasks);
+
+  return res.json({ success: true, imported: { conversations: conversationsImported, memories: memoriesImported, projects: projectsImported, skills: skillsImported, scheduledTasks: tasksImported }, note: "Imported skills and scheduled tasks are disabled. OAuth tokens and settings were not imported." });
+});
+
 // Import/export memory records. Import files must be provided by the user; OmniMind cannot read a ChatGPT account directly.
 app.get("/api/memories/export", (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
