@@ -3770,6 +3770,7 @@ app.post("/api/chat/stream", async (req, res) => {
 
     let pendingStreams: any[] = [resultStream];
     let toolRounds = 0;
+    const pendingActionsForMessage: Array<{ id: string; type: PendingChatWrite["type"]; summary: string; details: string; status: "pending" }> = [];
     while (pendingStreams.length > 0 && !isAborted) {
       const currentStream = pendingStreams.shift();
       const requestedCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
@@ -3808,7 +3809,6 @@ app.post("/api/chat/stream", async (req, res) => {
       }
       toolRounds++;
       const functionResponses: any[] = [];
-      const pendingActionsForMessage: Array<{ id: string; type: PendingChatWrite["type"]; summary: string; details: string; status: "pending" }> = [];
       for (const call of requestedCalls.slice(0, 4)) {
         if (["gmail_send", "calendar_create", "tasks_create", "tasks_complete"].includes(call.name)) {
           const type = call.name as PendingChatWrite["type"];
@@ -3819,19 +3819,35 @@ app.post("/api/chat/stream", async (req, res) => {
           if (type === "gmail_send") {
             payload = { to: typeof args.to === "string" ? args.to.trim().slice(0, 254) : "", subject: typeof args.subject === "string" ? args.subject.slice(0, 200) : "", body: typeof args.body === "string" ? args.body.slice(0, 20000) : "" };
             summary = "Send email";
-            details = "To: " + String(payload.to || "(missing recipient)") + "\\nSubject: " + String(payload.subject || "(missing subject)") + "\\n\\n" + String(payload.body || "(missing body)");
+            details = "To: " + String(payload.to || "(missing recipient)") + "\nSubject: " + String(payload.subject || "(missing subject)") + "\n\n" + String(payload.body || "(missing body)");
           } else if (type === "calendar_create") {
             payload = { summary: typeof args.summary === "string" ? args.summary.slice(0, 200) : "", description: typeof args.description === "string" ? args.description.slice(0, 4000) : "", location: typeof args.location === "string" ? args.location.slice(0, 500) : "", start: typeof args.start === "string" ? args.start.slice(0, 80) : "", end: typeof args.end === "string" ? args.end.slice(0, 80) : "" };
             summary = "Create calendar event";
-            details = String(payload.summary || "(untitled event)") + "\\nStart: " + String(payload.start || "(missing)") + "\\nEnd: " + String(payload.end || "(missing)") + (payload.location ? "\\nLocation: " + String(payload.location) : "");
+            details = String(payload.summary || "(untitled event)") + "\nStart: " + String(payload.start || "(missing)") + "\nEnd: " + String(payload.end || "(missing)") + (payload.location ? "\nLocation: " + String(payload.location) : "");
           } else if (type === "tasks_create") {
             payload = { listId: typeof args.listId === "string" && args.listId.trim() ? args.listId.trim().slice(0, 512) : "@default", title: typeof args.title === "string" ? args.title.slice(0, 1024) : "", notes: typeof args.notes === "string" ? args.notes.slice(0, 8000) : "" };
             summary = "Create Google Task";
-            details = String(payload.title || "(missing task title)") + (payload.notes ? "\\n" + String(payload.notes) : "") + "\\nList: " + String(payload.listId);
+            details = String(payload.title || "(missing task title)") + (payload.notes ? "\n" + String(payload.notes) : "") + "\nList: " + String(payload.listId);
           } else {
             payload = { listId: typeof args.listId === "string" ? args.listId.slice(0, 512) : "", taskId: typeof args.taskId === "string" ? args.taskId.slice(0, 512) : "" };
             summary = "Mark Google Task complete";
-            details = "Task ID: " + String(payload.taskId || "(missing task ID)") + "\\nList: " + String(payload.listId || "(missing list)");
+            details = "Task ID: " + String(payload.taskId || "(missing task ID)") + "\nList: " + String(payload.listId || "(missing list)");
+          }
+          if (type === "gmail_send" && (!payload.to || !String(payload.to).includes("@") || !payload.subject || !String(payload.body).trim())) {
+            functionResponses.push({ functionResponse: { name: call.name, response: { error: "Email recipient, subject, and body are required. Ask the user for missing details; nothing was sent." } } });
+            continue;
+          }
+          if (type === "calendar_create" && (!payload.summary || !payload.start || !payload.end)) {
+            functionResponses.push({ functionResponse: { name: call.name, response: { error: "Event title, start time, and end time are required. Ask the user for missing details; no event was created." } } });
+            continue;
+          }
+          if (type === "tasks_create" && !payload.title) {
+            functionResponses.push({ functionResponse: { name: call.name, response: { error: "Task title is required. Ask the user for it; no task was created." } } });
+            continue;
+          }
+          if (type === "tasks_complete" && (!payload.listId || !payload.taskId)) {
+            functionResponses.push({ functionResponse: { name: call.name, response: { error: "Task list ID and task ID are required. Ask the user to identify the task; nothing was changed." } } });
+            continue;
           }
           const id = randomBytes(24).toString("hex");
           pendingChatWrites.set(id, { id, type, payload, summary, details, status: "pending", createdAt: Date.now() });
