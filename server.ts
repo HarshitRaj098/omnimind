@@ -2189,10 +2189,12 @@ app.post("/api/chat/stream", async (req, res) => {
     projectsContext + 
     agentInstruction;
 
-  // Build history
-  const history = conv.messages.slice(0, -1).map(m => ({
+  // Keep the prompt lean: sending the entire lifetime of a chat increases
+  // input tokens and time-to-first-token on every turn. Recent turns plus the
+  // separately retrieved memory context preserve continuity at lower latency.
+  const history = conv.messages.slice(0, -1).slice(-12).map(m => ({
     role: m.role === "user" ? ("user" as const) : ("model" as const),
-    parts: [{ text: m.content }]
+    parts: [{ text: m.content.length > 4000 ? m.content.slice(-4000) : m.content }]
   }));
 
   // Build message parts (including multimodal files and text)
