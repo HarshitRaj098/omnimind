@@ -11,6 +11,7 @@ import { ShareModal } from "./components/ShareModal";
 import { VoiceModeModal } from "./components/VoiceModeModal";
 import { SharedConversationView } from "./components/SharedConversationView";
 import { MemoryWorkspaceModal } from "./components/MemoryWorkspaceModal";
+import { MediaLibraryModal } from "./components/MediaLibraryModal";
 
 export default function App() {
   const pathname = window.location.pathname;
@@ -38,6 +39,7 @@ export default function App() {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState(false);
+  const [isStudioModalOpen, setIsStudioModalOpen] = useState(false);
   const [activeSkillIds, setActiveSkillIds] = useState<string[]>([]);
   const [agentMode, setAgentMode] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -619,6 +621,7 @@ export default function App() {
           onOpenResearch={() => setIsResearchModalOpen(true)}
           onOpenApps={() => setIsAppsModalOpen(true)}
           onOpenMemory={() => setIsMemoryModalOpen(true)}
+          onOpenStudio={() => setIsStudioModalOpen(true)}
         />
 
         <div className="w-full shrink-0">
@@ -685,6 +688,12 @@ export default function App() {
       <MemoryWorkspaceModal
         isOpen={isMemoryModalOpen}
         onClose={() => setIsMemoryModalOpen(false)}
+      />
+
+      {/* Library and media creation workspace */}
+      <MediaLibraryModal
+        isOpen={isStudioModalOpen}
+        onClose={() => setIsStudioModalOpen(false)}
       />
     </div>
   );
