@@ -38,7 +38,15 @@ export default function App() {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState(false);
-  const [activeSkillIds, setActiveSkillIds] = useState<string[]>([]);
+  const [activeSkillIds, setActiveSkillIds] = useState<string[]>(() => {
+    try {
+      const stored = window.localStorage.getItem("omnimind:active-skills");
+      const parsed = stored ? JSON.parse(stored) : [];
+      return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+    } catch {
+      return [];
+    }
+  });
   const [agentMode, setAgentMode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -50,6 +58,26 @@ export default function App() {
     activeMode: "normal",
     theme: "dark"
   });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("omnimind:active-skills", JSON.stringify(activeSkillIds));
+    } catch {
+      // Skill activation remains usable if browser storage is unavailable.
+    }
+  }, [activeSkillIds]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connectionResult = params.get("connected_apps");
+    if (!connectionResult) return;
+    setIsAppsModalOpen(true);
+    if (connectionResult === "error") setError("Google account connection was cancelled or failed. Check Connected Apps setup and try again.");
+    params.delete("connected_apps");
+    params.delete("reason");
+    const query = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (query ? "?" + query : "") + window.location.hash);
+  }, []);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const conversationFetchSequenceRef = useRef(0);
