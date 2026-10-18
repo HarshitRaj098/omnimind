@@ -1147,8 +1147,14 @@ app.put("/api/memories/:id", (req, res) => {
   }
   if (category !== undefined && !MEMORY_CATEGORIES.has(category)) return res.status(400).json({ error: "Invalid memory category." });
   if (consentStatus !== undefined && !MEMORY_CONSENT_STATES.has(consentStatus)) return res.status(400).json({ error: "Invalid memory consent status." });
-  const normalizedTags = tags === undefined ? undefined : validateMemoryTags(tags);
-  if (tags !== undefined && !normalizedTags) return res.status(400).json({ error: `Tags must be an array of at most ${MAX_MEMORY_TAGS} strings, each no longer than ${MAX_MEMORY_TAG_LENGTH} characters.` });
+  let normalizedTags: string[] | undefined;
+  if (tags !== undefined) {
+    const validatedTags = validateMemoryTags(tags);
+    if (!validatedTags) {
+      return res.status(400).json({ error: `Tags must be an array of at most ${MAX_MEMORY_TAGS} strings, each no longer than ${MAX_MEMORY_TAG_LENGTH} characters.` });
+    }
+    normalizedTags = validatedTags;
+  }
 
   if (content !== undefined) memory.content = content.trim();
   if (category !== undefined) memory.category = category;
