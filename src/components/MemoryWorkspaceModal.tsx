@@ -63,6 +63,60 @@ export const MemoryWorkspaceModal: React.FC<MemoryWorkspaceModalProps> = ({
     }
   };
 
+  const handleExportMemories = async () => {
+    try {
+      const response = await fetch("/api/memories/export", { cache: "no-store" });
+      if (!response.ok) throw new Error("Memory export failed.");
+      const text = await response.text();
+      const url = URL.createObjectURL(new Blob([text], { type: "application/json;charset=utf-8" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "omnimind-memory-export.json";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      showFeedback(`Exported ${memories.length} memories`);
+    } catch (error) {
+      showFeedback(error instanceof Error ? error.message : "Could not export memories.");
+    }
+  };
+
+  const handleImportMemoryFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      let incoming: unknown[];
+      if (/\.json$/i.test(file.name)) {
+        const parsed = JSON.parse(text);
+        incoming = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.memories) ? parsed.memories : Array.isArray(parsed?.items) ? parsed.items : [];
+        if (!incoming.length && !Array.isArray(parsed) && !Array.isArray(parsed?.memories) && !Array.isArray(parsed?.items)) {
+          throw new Error("JSON must contain a memories or items array.");
+        }
+      } else {
+        incoming = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+          .map(content => ({ content, category: "context", tags: ["chatgpt-import"] }));
+      }
+      const normalized = incoming.map((item: any) => ({
+        content: typeof item === "string" ? item : typeof item?.content === "string" ? item.content : typeof item?.text === "string" ? item.text : "",
+        category: item?.category,
+        tags: Array.isArray(item?.tags) ? item.tags : ["chatgpt-import"],
+      })).filter(item => item.content.trim());
+      if (!normalized.length) throw new Error("No usable memory items found in this file.");
+      const response = await fetch("/api/memories/import", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ memories: normalized }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Memory import failed.");
+      await fetchMemories();
+      showFeedback(`Imported ${result.imported} memories; skipped ${result.skipped} duplicates or invalid items`);
+    } catch (error) {
+      showFeedback(error instanceof Error ? error.message : "Could not import memory file.");
+    }
+  };
+
   const handleToggleAutoSuggest = async () => {
     const updated = { ...settings, autoSuggest: !settings.autoSuggest };
     setSettings(updated);
@@ -211,7 +265,12 @@ export const MemoryWorkspaceModal: React.FC<MemoryWorkspaceModalProps> = ({
             />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="quiet" onClick={handleExportMemories}>Export all</Button>
+            <label className="inline-flex cursor-pointer items-center rounded-xl border border-[var(--claude-border)] px-3 py-2 text-xs hover:bg-[var(--claude-surface)]">
+              Import memory file
+              <input type="file" accept=".json,.txt,.md" className="hidden" onChange={handleImportMemoryFile} />
+            </label>
             <Button
               size="sm"
               variant={settings.autoSuggest ? "secondary" : "quiet"}
