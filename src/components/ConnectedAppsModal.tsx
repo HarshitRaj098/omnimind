@@ -34,6 +34,11 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
   const [githubIssueTitle, setGithubIssueTitle] = useState("");
   const [githubIssueBody, setGithubIssueBody] = useState("");
   const [githubIssueLoading, setGithubIssueLoading] = useState(false);
+  const [githubChangePath, setGithubChangePath] = useState("");
+  const [githubChangeTitle, setGithubChangeTitle] = useState("");
+  const [githubChangeBaseBranch, setGithubChangeBaseBranch] = useState("main");
+  const [githubChangeContent, setGithubChangeContent] = useState("");
+  const [githubChangeLoading, setGithubChangeLoading] = useState(false);
   const [workspaceQuery, setWorkspaceQuery] = useState("");
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -142,6 +147,54 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       setTestResult(error instanceof Error ? error.message : "Could not create GitHub issue.");
     } finally {
       setGithubIssueLoading(false);
+    }
+  };
+
+  const createGitHubFileChange = async () => {
+    const repository = githubIssueRepository.trim();
+    const path = githubChangePath.trim();
+    const commitMessage = githubChangeTitle.trim();
+    if (!repository || !path || !commitMessage || !githubChangeContent.trim()) {
+      setTestResult("Choose a repository and provide a file path, title, and full file content.");
+      return;
+    }
+    setGithubChangeLoading(true);
+    setTestResult(null);
+    try {
+      const prepareResponse = await fetch("/api/apps/github/changes/prepare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repository, path, content: githubChangeContent, commitMessage, baseBranch: githubChangeBaseBranch })
+      });
+      const prepared = await prepareResponse.json().catch(() => ({}));
+      if (!prepareResponse.ok) throw new Error(prepared.error || "Could not prepare GitHub file change.");
+      const preview = prepared.preview as { repository: string; path: string; baseBranch: string; commitMessage: string; contentPreview: string; contentLength: number; updatingExistingFile: boolean };
+      const confirmed = window.confirm(
+        "Create a GitHub branch and pull request?\\n\\nRepository: " + preview.repository +
+        "\\nFile: " + preview.path + (preview.updatingExistingFile ? " (update existing file)" : " (new file)") +
+        "\\nBase branch: " + preview.baseBranch + "\\nPR title: " + preview.commitMessage +
+        "\\nContent length: " + preview.contentLength + " characters\\n\\nPreview (first 1200 characters):\\n" +
+        preview.contentPreview + "\\n\\nThis creates a branch and opens a PR; it does not merge into the base branch. Confirmation expires in five minutes."
+      );
+      if (!confirmed) {
+        setTestResult("File change cancelled. No branch or pull request was created.");
+        return;
+      }
+      const response = await fetch("/api/apps/github/changes/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actionId: prepared.actionId, confirm: true })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not create GitHub pull request.");
+      setGithubChangePath("");
+      setGithubChangeTitle("");
+      setGithubChangeContent("");
+      setTestResult("Created PR #" + data.number + " for " + data.repository + "/" + data.path + ": " + data.url);
+    } catch (error) {
+      setTestResult(error instanceof Error ? error.message : "Could not create GitHub pull request.");
+    } finally {
+      setGithubChangeLoading(false);
     }
   };
 
@@ -450,6 +503,27 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
               <input value={githubIssueTitle} onChange={event => setGithubIssueTitle(event.target.value)} maxLength={256} placeholder="Issue title" aria-label="GitHub issue title" className="w-full rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" />
               <textarea value={githubIssueBody} onChange={event => setGithubIssueBody(event.target.value)} maxLength={20000} rows={3} placeholder="Description, reproduction steps, expected result…" aria-label="GitHub issue description" className="w-full resize-y rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" />
               <Button size="sm" variant="primary" disabled={githubIssueLoading || !githubIssueTitle.trim()} onClick={() => void createGitHubIssue()}>{githubIssueLoading ? "Creating issue…" : "Review & create issue"}</Button>
+            </div>
+          )}
+          {githubLogin && githubRepos.length > 0 && (
+            <div className="rounded-lg border border-[var(--claude-border-subtle)] p-3 space-y-3">
+              <div>
+                <h4 className="text-xs font-semibold text-[var(--claude-text)]">Propose a repository file change</h4>
+                <p className="mt-1 text-[10px] text-[var(--claude-text-muted)]">OmniMind creates a separate branch and opens a reviewable PR. It never merges or writes directly to the base branch. Secret files, workflow files, and lockfiles are blocked.</p>
+              </div>
+              <select value={githubIssueRepository} onChange={event => setGithubIssueRepository(event.target.value)} aria-label="GitHub repository for file change" className="w-full rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]">
+                {githubRepos.map(repo => <option key={repo.id} value={repo.fullName}>{repo.fullName}</option>)}
+              </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input value={githubChangePath} onChange={event => setGithubChangePath(event.target.value)} maxLength={240} placeholder="File path (src/example.ts)" aria-label="Repository file path" className="w-full rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" />
+                <input value={githubChangeBaseBranch} onChange={event => setGithubChangeBaseBranch(event.target.value)} maxLength={100} placeholder="Base branch" aria-label="Base branch for pull request" className="w-full rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" />
+              </div>
+              <input value={githubChangeTitle} onChange={event => setGithubChangeTitle(event.target.value)} maxLength={120} placeholder="Commit and pull request title" aria-label="Pull request title" className="w-full rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" />
+              <textarea value={githubChangeContent} onChange={event => setGithubChangeContent(event.target.value)} maxLength={50000} rows={6} placeholder="Paste the complete new file content here…" aria-label="Complete repository file content" className="w-full resize-y rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs font-mono text-[var(--claude-text)]" />
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[10px] text-[var(--claude-text-muted)]">{githubChangeContent.length.toLocaleString()} / 50,000 characters</span>
+                <Button size="sm" variant="primary" disabled={githubChangeLoading || !githubChangePath.trim() || !githubChangeTitle.trim() || !githubChangeContent.trim()} onClick={() => void createGitHubFileChange()}>{githubChangeLoading ? "Preparing PR…" : "Review & open pull request"}</Button>
+              </div>
             </div>
           )}
         </div>
