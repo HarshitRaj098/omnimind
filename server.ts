@@ -2281,17 +2281,13 @@ app.post("/api/chat/stream", async (req, res) => {
       // If error occurred with search grounding (e.g. 429 quota exhaustion or search failure),
       // gracefully fall back to stream without search grounding rather than failing the chat!
       if (useSearch) {
-        console.log("Falling back to stream without search grounding...");
+        console.log("Falling back to Flash without search grounding...");
         activeGroundingEnabled = false;
-        try {
-          resultStream = await initStream("gemini-3.8-flash", false);
-        } catch (fbErr: any) {
-          // If gemini-3.8-flash also fails, try gemini-2.5-flash without tools
-          resultStream = await initStream("gemini-2.5-flash", false);
-        }
+        // Retry the same fast model without search tools before switching models.
+        resultStream = await initStream("gemini-2.5-flash", false);
       } else {
-        // Fallback model retry
-        const fallbackModel = primaryModel === "gemini-3.8-flash" ? "gemini-2.5-flash" : "gemini-3.8-flash";
+        // Only use known, explicitly routed models for fallback.
+        const fallbackModel = primaryModel === "gemini-2.5-pro" ? "gemini-2.5-flash" : "gemini-2.5-pro";
         resultStream = await initStream(fallbackModel, false);
       }
     }
