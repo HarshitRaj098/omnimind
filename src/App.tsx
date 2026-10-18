@@ -326,6 +326,34 @@ export default function App() {
       timestamp: Date.now()
     };
 
+    let accumulatedText = "";
+    let textFlushFrame: number | null = null;
+    const flushAccumulatedText = () => {
+      if (textFlushFrame !== null) {
+        cancelAnimationFrame(textFlushFrame);
+        textFlushFrame = null;
+      }
+      if (!accumulatedText) return;
+      setActiveConversation(prev => {
+        if (!prev) return prev;
+        const newMsgs = [...prev.messages];
+        const lastMsg = newMsgs[newMsgs.length - 1];
+        if (lastMsg?.id !== modelMsgId) {
+          newMsgs.push({ ...modelMsg, content: accumulatedText });
+        } else {
+          newMsgs[newMsgs.length - 1] = { ...lastMsg, content: accumulatedText };
+        }
+        return { ...prev, messages: newMsgs };
+      });
+    };
+    const scheduleTextFlush = () => {
+      if (textFlushFrame !== null) return;
+      textFlushFrame = requestAnimationFrame(() => {
+        textFlushFrame = null;
+        flushAccumulatedText();
+      });
+    };
+
     setActiveConversation(prev => {
       if (!prev) return {
         id: currentConvId!,
@@ -366,7 +394,6 @@ export default function App() {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let accumulatedText = "";
       let eventBuffer = "";
 
       const processSseEvent = (eventText: string) => {
@@ -387,22 +414,7 @@ export default function App() {
           }
           if (data.text) {
             accumulatedText += data.text;
-            setActiveConversation(prev => {
-              if (!prev) return prev;
-              const newMsgs = [...prev.messages];
-              const lastMsg = newMsgs[newMsgs.length - 1];
-              if (lastMsg?.role !== "model") {
-                newMsgs.push({
-                  id: modelMsgId,
-                  role: "model",
-                  content: accumulatedText,
-                  timestamp: Date.now()
-                });
-              } else {
-                newMsgs[newMsgs.length - 1] = { ...lastMsg, content: accumulatedText };
-              }
-              return { ...prev, messages: newMsgs };
-            });
+            scheduleTextFlush();
           }
           if (data.grounding) {
             setActiveConversation(prev => {
@@ -462,6 +474,7 @@ export default function App() {
         });
       }
     } finally {
+      flushAccumulatedText();
       setIsGenerating(false);
       abortControllerRef.current = null;
     }
