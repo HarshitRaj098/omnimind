@@ -133,7 +133,7 @@ interface ScheduledTaskRun {
   startedAt: number;
   finishedAt: number;
   status: "success" | "failed";
-  trigger: "manual" | "scheduled";
+  trigger: "manual" | "scheduled" | "retry";
   result?: string;
   error?: string;
 }
@@ -1419,6 +1419,72 @@ app.patch("/api/scheduled-tasks/:id", (req, res) => {
   }
   saveScheduledTasks(tasks);
   return res.json(task);
+});
+
+app.post("/api/scheduled-tasks/:id/retry", async (req, res) => {
+  const tasks = loadScheduledTasks();
+  const task = tasks.find(item => item.id === req.params.id);
+  if (!task) return res.status(404).json({ error: "Scheduled task not found." });
+  if (scheduledTaskInFlight.has(task.id)) return res.status(409).json({ error: "This task is already running." });
+  const lastRun = Array.isArray(task.runs) ? task.runs[0] : undefined;
+  if (!lastRun || lastRun.status !== "failed") {
+    return res.status(409).json({ error: "Retry is available only after the latest execution failed." });
+  }
+
+  scheduledTaskInFlight.add(task.id);
+  const startedAt = Date.now();
+  try {
+    const result = await executeScheduledTask(task);
+    const latest = loadScheduledTasks();
+    const current = latest.find(item => item.id === task.id);
+    if (!current) return res.status(404).json({ error: "Scheduled task was deleted while it was running." });
+    const finishedAt = Date.now();
+    current.lastRunAt = finishedAt;
+    current.lastResult = result;
+    current.lastError = undefined;
+    current.runCount += 1;
+    appendScheduledTaskRun(current, {
+      id: "run_" + randomBytes(6).toString("hex"),
+      startedAt,
+      finishedAt,
+      status: "success",
+      trigger: "retry",
+      result: result.slice(0, 1500)
+    });
+    if (current.frequency === "once") {
+      current.enabled = false;
+    } else if (current.nextRunAt <= finishedAt) {
+      advanceScheduledTaskNextRun(current, finishedAt);
+    }
+    saveScheduledTasks(latest);
+    return res.json({ task: { ...current, running: false }, startedAt, finishedAt });
+  } catch (error) {
+    const latest = loadScheduledTasks();
+    const current = latest.find(item => item.id === task.id);
+    const message = error instanceof Error ? error.message.slice(0, 1000) : "Scheduled task retry failed.";
+    if (current) {
+      const failedAt = Date.now();
+      current.lastRunAt = failedAt;
+      current.lastError = message;
+      current.runCount += 1;
+      appendScheduledTaskRun(current, {
+        id: "run_" + randomBytes(6).toString("hex"),
+        startedAt,
+        finishedAt: failedAt,
+        status: "failed",
+        trigger: "retry",
+        error: message.slice(0, 1500)
+      });
+      if (current.nextRunAt <= failedAt) {
+        if (current.frequency === "once") current.enabled = false;
+        else advanceScheduledTaskNextRun(current, failedAt);
+      }
+      saveScheduledTasks(latest);
+    }
+    return res.status(502).json({ error: message, task: current ? { ...current, running: false } : undefined });
+  } finally {
+    scheduledTaskInFlight.delete(task.id);
+  }
 });
 
 app.post("/api/scheduled-tasks/:id/run", async (req, res) => {
