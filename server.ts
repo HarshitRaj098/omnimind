@@ -1158,6 +1158,31 @@ app.get("/api/apps/status", (_req, res) => {
   });
 });
 
+// Safe OAuth diagnostics: exposes configuration status and granted scope names, never secrets or tokens.
+app.get("/api/apps/google/diagnostics", (_req, res) => {
+  const config = googleOAuthConfig();
+  const tokens = loadGoogleOAuthTokens();
+  const grantedScopes = (tokens?.scope || "").split(/\\s+/).filter(Boolean);
+  const missingScopes = GOOGLE_OAUTH_SCOPES.filter(scope => !grantedScopes.includes(scope));
+  const callbackUri = config.redirectUri || null;
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    configured: config.configured,
+    clientIdConfigured: Boolean(config.clientId),
+    clientSecretConfigured: Boolean(config.clientSecret),
+    appUrlConfigured: Boolean(process.env.APP_URL),
+    explicitRedirectUriConfigured: Boolean(process.env.GOOGLE_REDIRECT_URI),
+    callbackUri,
+    connected: Boolean(tokens),
+    accountEmail: tokens?.email || null,
+    hasRefreshToken: Boolean(tokens?.refresh_token),
+    accessTokenExpiresAt: tokens?.expires_at || null,
+    accessTokenExpired: tokens ? tokens.expires_at <= Date.now() : null,
+    grantedScopes,
+    missingScopes
+  });
+});
+
 app.get("/api/apps", (_req, res) => {
   res.json(loadApps());
 });
