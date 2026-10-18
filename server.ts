@@ -1233,9 +1233,14 @@ app.post("/api/scheduled-tasks/:id/run", async (req, res) => {
     const current = latest.find(item => item.id === task.id);
     const message = error instanceof Error ? error.message.slice(0, 1000) : "Scheduled task failed.";
     if (current) {
-      current.lastRunAt = Date.now();
+      const failedAt = Date.now();
+      current.lastRunAt = failedAt;
       current.lastError = message;
       current.runCount += 1;
+      if (current.nextRunAt <= failedAt) {
+        const retryDelay = current.frequency === "weekly" ? 604800000 : 86400000;
+        current.nextRunAt = failedAt + retryDelay;
+      }
       saveScheduledTasks(latest);
     }
     return res.status(502).json({ error: message, task: current ? { ...current, running: false } : undefined });
@@ -1246,9 +1251,10 @@ app.post("/api/scheduled-tasks/:id/run", async (req, res) => {
 
 app.delete("/api/scheduled-tasks/:id", (req, res) => {
   const tasks = loadScheduledTasks();
-  const remaining = tasks.filter(task => task.id !== req.params.id);
-  if (remaining.length === tasks.length) return res.status(404).json({ error: "Scheduled task not found." });
-  saveScheduledTasks(remaining);
+  const task = tasks.find(item => item.id === req.params.id);
+  if (!task) return res.status(404).json({ error: "Scheduled task not found." });
+  if (scheduledTaskInFlight.has(task.id)) return res.status(409).json({ error: "This task is running; try again when it finishes." });
+  saveScheduledTasks(tasks.filter(item => item.id !== req.params.id));
   return res.json({ success: true });
 });
 
