@@ -329,7 +329,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
 
                   {!isEditing && (
-                    <div className="flex md:hidden md:group-hover:flex items-center gap-1 shrink-0 ml-2">
+                    <div className="flex items-center gap-1 shrink-0 ml-2 md:invisible md:group-hover:visible md:group-focus-within:visible">
                       <button
                         onClick={(e) => handleTogglePin(c.id, !Boolean(c.pinned), e)}
                         className="min-h-7 min-w-7 p-1 text-[var(--claude-text-muted)] hover:text-[var(--claude-text)] rounded-lg hover:bg-[var(--claude-border)] text-[10px]"

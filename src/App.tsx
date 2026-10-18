@@ -213,11 +213,28 @@ export default function App() {
         throw new Error(result?.error || "Conversation deletion was not confirmed");
       }
 
-      const remaining = conversations.filter(c => c.id !== id);
-      setConversations(prev => prev.filter(c => c.id !== id));
+      // Remove the confirmed-deleted chat immediately. Refresh from the
+      // server when possible, but don't make a successful delete look failed
+      // just because the follow-up list request is unavailable or stale.
+      const localRemaining = conversations.filter(conversation => conversation.id !== id);
+      let nextConversations = localRemaining;
+      try {
+        const listResponse = await fetch("/api/conversations", { cache: "no-store" });
+        if (listResponse.ok) {
+          const latestConversations: ConversationSummary[] = await listResponse.json();
+          if (!latestConversations.some(conversation => conversation.id === id)) {
+            nextConversations = latestConversations;
+          }
+        }
+      } catch (refreshError) {
+        console.warn("Could not refresh conversation list after deletion:", refreshError);
+      }
+
+      const nextActive = nextConversations[0] ?? null;
+      setConversations(nextConversations);
       if (activeId === id) {
-        setActiveId(remaining[0]?.id ?? null);
-        if (remaining.length === 0) setActiveConversation(null);
+        setActiveConversation(null);
+        setActiveId(nextActive?.id ?? null);
       }
       setError(null);
       return true;
