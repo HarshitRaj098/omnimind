@@ -2565,8 +2565,8 @@ app.get("/api/apps/youtube/search", async (req, res) => {
   }
 });
 
-// Read-only Google Tasks integration. Fetch a bounded set of tasks from the first task list.
-app.get("/api/apps/tasks", async (_req, res) => {
+// Google Tasks integration. Return task lists and load a validated selected list.
+app.get("/api/apps/tasks", async (req, res) => {
   try {
     const accessToken = await getGoogleAccessToken("https://www.googleapis.com/auth/tasks.readonly");
     const headers = { Authorization: `Bearer ${accessToken}` };
@@ -2577,7 +2577,11 @@ app.get("/api/apps/tasks", async (_req, res) => {
       return res.status(502).json({ error: listsData.error?.message || "Google Tasks could not load task lists." });
     }
     const taskLists = (listsData.items || []).slice(0, 100);
-    const selectedList = taskLists[0];
+    const requestedListId = typeof req.query.listId === "string" ? req.query.listId.trim() : "";
+    const selectedList = requestedListId
+      ? taskLists.find(list => list.id === requestedListId)
+      : taskLists[0];
+    if (requestedListId && !selectedList) return res.status(400).json({ error: "That Google Tasks list is not available for the connected account." });
     if (!selectedList) return res.json({ taskLists: [], selectedListId: null, selectedListTitle: null, tasks: [] });
     const tasksUrl = new URL(`https://tasks.googleapis.com/tasks/v1/lists/${encodeURIComponent(selectedList.id)}/tasks`);
     tasksUrl.searchParams.set("maxResults", "30");
@@ -2590,7 +2594,15 @@ app.get("/api/apps/tasks", async (_req, res) => {
       if (tasksResponse.status === 401 || tasksResponse.status === 403) return res.status(tasksResponse.status).json({ error: "Google Tasks could not read this list. Check the account Tasks permission." });
       return res.status(502).json({ error: tasksData.error?.message || "Google Tasks could not load tasks." });
     }
-    return res.json({ taskLists: taskLists.map(list => ({ id: list.id, title: list.title, updated: list.updated || "" })), selectedListId: selectedList.id, selectedListTitle: selectedList.title, tasks: (tasksData.items || []).filter(task => task.status !== "completed").map(task => ({ id: task.id, title: task.title || "(untitled task)", notes: task.notes || "", due: task.due || "", status: task.status || "needsAction", updated: task.updated || "" })) });
+    return res.json({
+      taskLists: taskLists.map(list => ({ id: list.id, title: list.title, updated: list.updated || "" })),
+      selectedListId: selectedList.id,
+      selectedListTitle: selectedList.title,
+      tasks: (tasksData.items || []).filter(task => task.status !== "completed").map(task => ({
+        id: task.id, title: task.title || "(untitled task)", notes: task.notes || "",
+        due: task.due || "", status: task.status || "needsAction", updated: task.updated || ""
+      }))
+    });
   } catch (error) { return sendGoogleAppError(res, error); }
 });
 

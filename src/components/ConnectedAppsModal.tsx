@@ -49,6 +49,8 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
   const [calendarEvents, setCalendarEvents] = useState<Array<{ id: string; summary: string; start: string; end: string; htmlLink: string; location: string }>>([]);
   const [googleTasks, setGoogleTasks] = useState<Array<{ id: string; title: string; notes: string; due: string; status: string }>>([]);
   const [googleTaskListTitle, setGoogleTaskListTitle] = useState<string | null>(null);
+  const [googleTaskLists, setGoogleTaskLists] = useState<Array<{ id: string; title: string; updated?: string }>>([]);
+  const [selectedGoogleTaskListId, setSelectedGoogleTaskListId] = useState<string>("");
   const [emailTo, setEmailTo] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
@@ -292,19 +294,25 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
     }
   };
 
-  const loadGoogleTasks = async () => {
+  const loadGoogleTasks = async (listId = selectedGoogleTaskListId) => {
     setWorkspaceLoading(true);
     setWorkspaceError(null);
     setGmailMessages([]);
     setDriveFiles([]);
     setCalendarEvents([]);
     try {
-      const response = await fetch("/api/apps/tasks", { cache: "no-store" });
+      const query = listId ? "?listId=" + encodeURIComponent(listId) : "";
+      const response = await fetch("/api/apps/tasks" + query, { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not load Google Tasks.");
+      const lists = Array.isArray(data.taskLists) ? data.taskLists : [];
+      setGoogleTaskLists(lists);
+      const selectedId = typeof data.selectedListId === "string" ? data.selectedListId : "";
+      setSelectedGoogleTaskListId(selectedId);
       setGoogleTasks(Array.isArray(data.tasks) ? data.tasks : []);
       setGoogleTaskListTitle(typeof data.selectedListTitle === "string" ? data.selectedListTitle : null);
-      if (!Array.isArray(data.tasks) || data.tasks.length === 0) setWorkspaceError("No open tasks found in your default Google Tasks list.");
+      if (!lists.length) setWorkspaceError("No Google Tasks lists were found for this account.");
+      else if (!Array.isArray(data.tasks) || data.tasks.length === 0) setWorkspaceError("No open tasks found in this list.");
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : "Could not load Google Tasks.");
     } finally {
@@ -642,6 +650,20 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
             </div>
           )}
           {workspaceError && <p role="alert" className="text-xs text-red-400">{workspaceError}</p>}
+          {googleTaskLists.length > 0 && (
+            <div className="space-y-2">
+              <label htmlFor="google-task-list" className="block text-[10px] uppercase tracking-wider text-[var(--claude-text-muted)]">Google Tasks list</label>
+              <select
+                id="google-task-list"
+                value={selectedGoogleTaskListId}
+                onChange={(event) => loadGoogleTasks(event.target.value)}
+                disabled={workspaceLoading}
+                className="w-full rounded-lg border border-[var(--claude-border-subtle)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)] disabled:opacity-50"
+              >
+                {googleTaskLists.map(list => <option key={list.id} value={list.id}>{list.title}</option>)}
+              </select>
+            </div>
+          )}
           {googleTasks.length > 0 && (
             <div className="space-y-2">
               <p className="text-[10px] uppercase tracking-wider text-[var(--claude-text-muted)]">
