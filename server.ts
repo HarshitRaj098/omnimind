@@ -2192,22 +2192,17 @@ app.post("/api/chat/stream", async (req, res) => {
     }
   }
 
-  // Resilient model routing:
-  // If user requested pro/argon: gemini-2.5-pro
-  // If webSearch is active: gemini-2.5-flash (supports search grounding within quota)
-  // Otherwise: gemini-3.8-flash (or user selected model)
-  const requestedModel = (model || settings.model || "gemini-2.5-flash").trim();
-  let primaryModel = requestedModel;
-  if (requestedModel.includes("pro") || requestedModel.includes("argon")) {
-    primaryModel = "gemini-2.5-pro";
-  } else if (requestedModel.includes("3.8") || requestedModel.includes("latest")) {
-    primaryModel = webSearch ? "gemini-2.5-flash" : "gemini-3.8-flash";
-  } else {
-    primaryModel = "gemini-2.5-flash";
-  }
+  // Fast-path routing: use the stable Flash model directly to avoid a slow
+  // failed-model attempt followed by a fallback. Reserve Pro for explicit requests.
+  const requestedModel = (model || settings.model || "gemini-2.5-flash").trim().toLowerCase();
+  const primaryModel = requestedModel.includes("pro") || requestedModel.includes("argon")
+    ? "gemini-2.5-pro"
+    : "gemini-2.5-flash";
 
-  // Google Search Grounding Configuration
-  const useSearch = webSearch !== false;
+  // Grounding adds latency. Keep ordinary conversation fast and invoke Google
+  // Search when the user asks for fresh facts, research, or an explicit web search.
+  const searchIntent = /\\b(search (?:the )?web|web search|look up|research|latest|current|today|yesterday|this week|recent news|breaking|price|pricing|weather|forecast|stock|exchange rate|compare (?:the )?latest|sources|citations|official site|who won|when is the next)\\b/i.test(String(message || ""));
+  const useSearch = webSearch !== false && searchIntent;
 
   let isAborted = false;
   // The request body can finish closing while its response is still streaming.
