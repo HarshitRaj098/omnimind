@@ -22,6 +22,7 @@ interface ChatAreaProps {
   onOpenApps: () => void;
   onOpenTasks: () => void;
   onOpenMemory: () => void;
+  onResolveAction: (actionId: string, confirm: boolean) => void;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
@@ -36,6 +37,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   error,
   onOpenApps,
   onOpenTasks,
+  onResolveAction,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -238,6 +240,32 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         dangerouslySetInnerHTML={renderMarkdown(msg.content)}
                       />
                     )}
+
+                    {!isUser && msg.pendingActions?.map((action) => (
+                      <section key={action.id} className="mt-4 rounded-xl border border-[var(--claude-border)] bg-[var(--claude-surface)] p-4" aria-label="Action confirmation">
+                        <div className="flex items-start gap-3">
+                          <AppIcon name="shield" size={18} />
+                          <div className="min-w-0 flex-1">
+                            <h3 className="text-sm font-semibold">{action.summary}</h3>
+                            <p className="mt-1 text-xs leading-5 text-[var(--claude-text-muted)] whitespace-pre-wrap break-words">{action.details}</p>
+                            {action.status === "pending" ? (
+                              <>
+                                <p className="mt-3 text-xs font-medium">Nothing has happened yet. Confirm only if these details are correct.</p>
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  <Button size="sm" onClick={() => onResolveAction(action.id, true)}>Confirm and execute</Button>
+                                  <Button size="sm" variant="quiet" onClick={() => onResolveAction(action.id, false)}>Cancel</Button>
+                                </div>
+                              </>
+                            ) : (
+                              <p className="mt-3 text-xs font-medium" role="status">
+                                {action.status === "confirmed" ? "Action completed after confirmation." : action.status === "cancelled" ? "Cancelled. No external changes were made." : "Action failed. Check the error and connected-app permissions."}
+                              </p>
+                            )}
+                            {action.result && action.status !== "pending" && <p className="mt-2 text-xs text-[var(--claude-text-muted)] break-words">{action.result}</p>}
+                          </div>
+                        </div>
+                      </section>
+                    ))}
 
                     {!isUser && msg.grounding && (
                       (msg.grounding.sources?.length || msg.grounding.queries?.length) ? (
