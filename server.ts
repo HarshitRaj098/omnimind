@@ -18,7 +18,9 @@ const CONV_FILE = path.join(DATA_DIR, "conversations.json");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 const APPS_FILE = path.join(DATA_DIR, "connected_apps.json");
 const GOOGLE_TOKENS_FILE = path.join(DATA_DIR, "google_oauth_tokens.json");
+const GITHUB_TOKENS_FILE = path.join(DATA_DIR, "github_oauth_tokens.json");
 const googleOAuthStates = new Map<string, number>();
+const githubOAuthStates = new Map<string, number>();
 const FILES_INDEX_FILE = path.join(DATA_DIR, "file_index.json");
 const SKILLS_FILE = path.join(DATA_DIR, "skills.json");
 const SHARED_FILE = path.join(DATA_DIR, "shared_conversations.json");
@@ -73,7 +75,7 @@ interface SharedConversation {
 interface ConnectedApp {
   id: string;
   name: string;
-  category: "google" | "youtube" | "whatsapp";
+  category: "google" | "youtube" | "whatsapp" | "github";
   connected: boolean;
   scopes: string[];
   lastConnected?: number;
@@ -186,6 +188,13 @@ const DEFAULT_APPS: ConnectedApp[] = [
     category: "youtube",
     connected: false,
     scopes: ["https://www.googleapis.com/auth/youtube.readonly"]
+  },
+  {
+    id: "github",
+    name: "GitHub",
+    category: "github",
+    connected: false,
+    scopes: ["read:user"]
   },
   {
     id: "whatsapp",
@@ -458,16 +467,22 @@ function loadApps(): ConnectedApp[] {
     console.error("Error loading connected apps:", error);
   }
 
-  const tokens = loadGoogleOAuthTokens();
-  const grantedScopes = new Set((tokens?.scope || "").split(/\s+/).filter(Boolean));
+  const googleTokens = loadGoogleOAuthTokens();
+  const googleScopes = new Set((googleTokens?.scope || "").split(/\s+/).filter(Boolean));
+  const githubTokens = loadGitHubOAuthTokens();
   return apps.map(app => {
-    const connected = app.category !== "whatsapp" && Boolean(tokens) &&
-      app.scopes.every(scope => grantedScopes.has(scope));
+    const connected = app.category === "google"
+      ? Boolean(googleTokens) && app.scopes.every(scope => googleScopes.has(scope))
+      : app.category === "github"
+        ? Boolean(githubTokens?.scopes.includes("read:user"))
+        : false;
     return {
       ...app,
       connected,
-      accountEmail: connected ? tokens?.email : undefined,
-      lastConnected: connected ? tokens?.connectedAt : undefined
+      accountEmail: app.category === "google" && connected ? googleTokens?.email : undefined,
+      lastConnected: app.category === "google" && connected
+        ? googleTokens?.connectedAt
+        : app.category === "github" && connected ? githubTokens?.connectedAt : undefined
     };
   });
 }
@@ -970,7 +985,39 @@ app.delete("/api/projects/:id", (req, res) => {
   res.json({ success: true });
 });
 
-// Connected Apps: Google OAuth 2.0
+interface GitHubOAuthTokens {
+  access_token: string;
+  scopes: string[];
+  login: string;
+  connectedAt: number;
+}
+
+function loadGitHubOAuthTokens(): GitHubOAuthTokens | null {
+  try {
+    if (!fs.existsSync(GITHUB_TOKENS_FILE)) return null;
+    return JSON.parse(fs.readFileSync(GITHUB_TOKENS_FILE, "utf-8")) as GitHubOAuthTokens;
+  } catch (error) {
+    console.error("Could not read GitHub OAuth tokens:", error);
+    return null;
+  }
+}
+
+function saveGitHubOAuthTokens(tokens: GitHubOAuthTokens) {
+  const temporaryFile = GITHUB_TOKENS_FILE + ".tmp";
+  fs.writeFileSync(temporaryFile, JSON.stringify(tokens, null, 2), { encoding: "utf-8", mode: 0o600 });
+  fs.renameSync(temporaryFile, GITHUB_TOKENS_FILE);
+  try { fs.chmodSync(GITHUB_TOKENS_FILE, 0o600); } catch { /* Platform-dependent permissions. */ }
+}
+
+function githubOAuthConfig() {
+  const clientId = process.env.GITHUB_CLIENT_ID;
+  const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+  const appUrl = process.env.APP_URL?.replace(/\/$/, "");
+  const redirectUri = process.env.GITHUB_REDIRECT_URI || (appUrl ? `${appUrl}/api/apps/github/callback` : "");
+  return { clientId, clientSecret, redirectUri, configured: Boolean(clientId && clientSecret && redirectUri) };
+}
+
+// Connected Apps: Google and GitHub OAuth
 const GOOGLE_OAUTH_SCOPES = [
   "openid",
   "https://www.googleapis.com/auth/userinfo.email",
@@ -994,7 +1041,16 @@ function googleOAuthConfig() {
 app.get("/api/apps/status", (_req, res) => {
   const config = googleOAuthConfig();
   const tokens = loadGoogleOAuthTokens();
-  res.json({ googleOAuthConfigured: config.configured, googleAccountEmail: tokens?.email || null, googleConnected: Boolean(tokens) });
+  const githubConfig = githubOAuthConfig();
+  const githubTokens = loadGitHubOAuthTokens();
+  res.json({
+    googleOAuthConfigured: config.configured,
+    googleAccountEmail: tokens?.email || null,
+    googleConnected: Boolean(tokens),
+    githubOAuthConfigured: githubConfig.configured,
+    githubLogin: githubTokens?.login || null,
+    githubConnected: Boolean(githubTokens && githubTokens.scopes.includes("read:user"))
+  });
 });
 
 app.get("/api/apps", (_req, res) => {
@@ -1090,6 +1146,123 @@ app.post("/api/apps/google/disconnect", (_req, res) => {
   }
 });
 
+
+
+app.get("/api/apps/github/connect", (_req, res) => {
+  const config = githubOAuthConfig();
+  if (!config.configured) {
+    return res.status(503).type("text/plain").send(
+      "GitHub OAuth is not configured. Set GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, and APP_URL (or GITHUB_REDIRECT_URI), then restart OmniMind."
+    );
+  }
+  const now = Date.now();
+  for (const [state, createdAt] of githubOAuthStates) {
+    if (now - createdAt > 10 * 60 * 1000) githubOAuthStates.delete(state);
+  }
+  const state = randomBytes(32).toString("hex");
+  githubOAuthStates.set(state, now);
+  const authorizeUrl = new URL("https://github.com/login/oauth/authorize");
+  authorizeUrl.searchParams.set("client_id", config.clientId!);
+  authorizeUrl.searchParams.set("redirect_uri", config.redirectUri);
+  authorizeUrl.searchParams.set("scope", "read:user");
+  authorizeUrl.searchParams.set("state", state);
+  return res.redirect(authorizeUrl.toString());
+});
+
+app.get("/api/apps/github/callback", async (req, res) => {
+  const state = typeof req.query.state === "string" ? req.query.state : "";
+  const createdAt = githubOAuthStates.get(state);
+  githubOAuthStates.delete(state);
+  if (!state || !createdAt || Date.now() - createdAt > 10 * 60 * 1000) {
+    return res.status(400).type("text/plain").send("GitHub sign-in expired or OAuth state was invalid. Return to OmniMind and try again.");
+  }
+  if (typeof req.query.error === "string") {
+    return res.redirect("/?connected_apps=error&reason=" + encodeURIComponent(req.query.error));
+  }
+  const code = typeof req.query.code === "string" ? req.query.code : "";
+  const config = githubOAuthConfig();
+  if (!code || !config.configured) {
+    return res.status(400).type("text/plain").send("GitHub did not return an authorization code, or OAuth is not configured.");
+  }
+  try {
+    const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+      body: new URLSearchParams({ code, client_id: config.clientId!, client_secret: config.clientSecret!, redirect_uri: config.redirectUri }),
+      signal: AbortSignal.timeout(10_000)
+    });
+    const tokenData = await tokenResponse.json() as { access_token?: string; scope?: string; error?: string };
+    if (!tokenResponse.ok || !tokenData.access_token || tokenData.error) throw new Error(tokenData.error || "GitHub token exchange failed.");
+    const profileResponse = await fetch("https://api.github.com/user", {
+      headers: {
+        Authorization: `Bearer ${tokenData.access_token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "OmniMind"
+      },
+      signal: AbortSignal.timeout(10_000)
+    });
+    const profile = await profileResponse.json() as { login?: string };
+    if (!profileResponse.ok || !profile.login) throw new Error("GitHub profile could not be verified.");
+    const scopes = (tokenData.scope || "read:user").replace(/,/g, " ").split(/\s+/).filter(Boolean);
+    if (!scopes.includes("read:user")) throw new Error("GitHub did not grant the requested profile permission.");
+    saveGitHubOAuthTokens({ access_token: tokenData.access_token, scopes, login: profile.login, connectedAt: Date.now() });
+    return res.redirect("/?connected_apps=github_success");
+  } catch (error) {
+    console.error("GitHub OAuth callback failed:", error);
+    return res.redirect("/?connected_apps=error&reason=github_token_exchange_failed");
+  }
+});
+
+app.post("/api/apps/github/disconnect", (_req, res) => {
+  try {
+    if (fs.existsSync(GITHUB_TOKENS_FILE)) fs.unlinkSync(GITHUB_TOKENS_FILE);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("Could not disconnect GitHub account:", error);
+    return res.status(500).json({ error: "Could not remove the saved GitHub connection." });
+  }
+});
+
+// Profile-only OAuth deliberately exposes public repositories only.
+// Private repository access needs a GitHub App installation with narrow read permissions.
+app.get("/api/apps/github/repos", async (_req, res) => {
+  const tokens = loadGitHubOAuthTokens();
+  if (!tokens || !tokens.scopes.includes("read:user")) return res.status(401).json({ error: "Connect your GitHub account first." });
+  try {
+    const response = await fetch(
+      `https://api.github.com/users/${encodeURIComponent(tokens.login)}/repos?type=owner&sort=updated&per_page=20`,
+      {
+        headers: {
+          Authorization: `Bearer ${tokens.access_token}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "OmniMind"
+        },
+        signal: AbortSignal.timeout(10_000)
+      }
+    );
+    if (!response.ok) {
+      if (response.status === 401) return res.status(401).json({ error: "GitHub authorization expired or was revoked. Reconnect GitHub." });
+      return res.status(502).json({ error: "GitHub could not load repositories. Try again." });
+    }
+    const repos = await response.json() as Array<{
+      id: number; name: string; full_name: string; description: string | null; html_url: string;
+      language: string | null; stargazers_count: number; updated_at: string; private: boolean;
+    }>;
+    return res.json({
+      login: tokens.login,
+      repositories: repos.filter(repo => !repo.private).map(repo => ({
+        id: repo.id, name: repo.name, fullName: repo.full_name, description: repo.description,
+        url: repo.html_url, language: repo.language, stars: repo.stargazers_count, updatedAt: repo.updated_at
+      }))
+    });
+  } catch (error) {
+    console.error("GitHub repository request failed:", error);
+    if (error instanceof Error && error.name === "TimeoutError") return res.status(504).json({ error: "GitHub took too long to respond. Try again." });
+    return res.status(502).json({ error: "GitHub repository request failed. Check the connection and try again." });
+  }
+});
 
 const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
