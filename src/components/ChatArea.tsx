@@ -20,6 +20,7 @@ interface ChatAreaProps {
   onOpenSkills: () => void;
   onOpenResearch: () => void;
   onOpenApps: () => void;
+  onOpenTasks: () => void;
   onOpenMemory: () => void;
 }
 
@@ -34,6 +35,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   isSidebarOpen,
   error,
   onOpenApps,
+  onOpenTasks,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -170,6 +172,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           title="Open connected apps"
         >
           Apps
+        </Button>
+        <Button size="sm" variant="quiet" icon={<AppIcon name="calendar" size={15} />} onClick={onOpenTasks} aria-label="Open scheduled tasks" title="Open scheduled tasks">
+          Tasks
         </Button>
         {hasMessages && (
           <Button
