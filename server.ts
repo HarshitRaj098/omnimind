@@ -733,6 +733,41 @@ const ai = new GoogleGenAI({
   },
 });
 
+/**
+ * Keep model IDs centralized so deprecated model names cannot leak into
+ * chat or scheduled-task fallbacks. Every value can be overridden per deployment.
+ */
+const GEMINI_FLASH_MODEL = process.env.GEMINI_FLASH_MODEL?.trim() || "gemini-3.8-flash";
+const GEMINI_PRO_MODEL = process.env.GEMINI_PRO_MODEL?.trim() || "gemini-3.1-pro-preview";
+const GEMINI_ARGON_MODEL = process.env.GEMINI_ARGON_MODEL?.trim() || "gemini-4-argon";
+const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL?.trim() || "gemini-3.5-flash";
+
+function resolveGeminiChatModel(value: unknown): string {
+  const requested = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (requested.includes("argon")) return GEMINI_ARGON_MODEL;
+  if (requested.includes("pro")) return GEMINI_PRO_MODEL;
+  return GEMINI_FLASH_MODEL;
+}
+
+function isGeminiQuotaError(error: unknown): boolean {
+  const value = error as any;
+  const message = String(value?.message || value || "");
+  return value?.status === 429 || /RESOURCE_EXHAUSTED|quota exceeded|rate limit|\b429\b/i.test(message);
+}
+
+function isGeminiModelUnavailableError(error: unknown): boolean {
+  const value = error as any;
+  const message = String(value?.message || value || "");
+  return value?.status === 404 || /NOT_FOUND|model.{0,40}(?:not found|no longer available|unavailable)|\b404\b/i.test(message);
+}
+
+function getGeminiFallbackModel(primaryModel: string): string {
+  if (primaryModel === GEMINI_PRO_MODEL || primaryModel === GEMINI_ARGON_MODEL) {
+    return GEMINI_FLASH_MODEL;
+  }
+  return GEMINI_FALLBACK_MODEL;
+}
+
 // Persona profiles with Dragon Queen as paramount default
 const PERSONA_PROFILES: Record<string, string> = {
   dragon_queen: `You embody the Dragon Queen persona: regal, commanding, magnetic, and fiercely intelligent, with a softer, affectionate side for someone you trust.
@@ -2938,9 +2973,7 @@ async function executeScheduledTask(task: ScheduledTask): Promise<string> {
   ].join("\n");
 
   const settings = loadSettings();
-  const preferredModel = typeof settings.model === "string" && settings.model.trim()
-    ? settings.model
-    : "gemini-3.8-flash";
+  const preferredModel = resolveGeminiChatModel(settings.model || GEMINI_FLASH_MODEL);
   const systemInstruction = "You are OmniMind's scheduled-task executor. Be factual, concise, and transparent about missing permissions or unavailable data. Never invent email, file, calendar, or execution results.";
   const run = async (model: string) => {
     const chat = ai.chats.create({
@@ -2954,9 +2987,17 @@ async function executeScheduledTask(task: ScheduledTask): Promise<string> {
     const response = await run(preferredModel);
     return (response.text || "Task ran, but the model returned no text.").slice(0, 12000);
   } catch (primaryError) {
-    if (preferredModel === "gemini-2.5-flash") throw primaryError;
-    const response = await run("gemini-2.5-flash");
-    return (response.text || "Task ran, but the model returned no text.").slice(0, 12000);
+    const fallbackModel = getGeminiFallbackModel(preferredModel);
+    if (fallbackModel === preferredModel) throw primaryError;
+    try {
+      const response = await run(fallbackModel);
+      return (response.text || "Task ran, but the model returned no text.").slice(0, 12000);
+    } catch (fallbackError) {
+      if (isGeminiQuotaError(fallbackError)) {
+        throw new Error("Gemini quota is exhausted for both the primary and fallback models. Check Google AI Studio usage/billing or wait until the quota resets.");
+      }
+      throw fallbackError;
+    }
   }
 }
 
@@ -3223,12 +3264,10 @@ app.post("/api/chat/stream", async (req, res) => {
     }
   }
 
-  // Fast-path routing: use the stable Flash model directly to avoid a slow
-  // failed-model attempt followed by a fallback. Reserve Pro for explicit requests.
-  const requestedModel = (model || settings.model || "gemini-2.5-flash").trim().toLowerCase();
-  const primaryModel = requestedModel.includes("pro") || requestedModel.includes("argon")
-    ? "gemini-2.5-pro"
-    : "gemini-2.5-flash";
+  // Use current model IDs. Legacy UI selections are mapped by model family.
+  // A deployment can override these defaults with GEMINI_*_MODEL environment variables.
+  const requestedModel = (model || settings.model || GEMINI_FLASH_MODEL).trim().toLowerCase();
+  const primaryModel = resolveGeminiChatModel(requestedModel);
 
   // Grounding adds latency. Keep ordinary conversation fast and invoke Google
   // Search when the user asks for fresh facts, research, or an explicit web search.
@@ -3269,16 +3308,21 @@ app.post("/api/chat/stream", async (req, res) => {
       resultStream = await initStream(primaryModel, useSearch);
     } catch (primaryErr: any) {
       console.warn("Primary stream initiation error:", primaryErr.message);
-      // If error occurred with search grounding (e.g. 429 quota exhaustion or search failure),
-      // gracefully fall back to stream without search grounding rather than failing the chat!
-      if (useSearch) {
-        console.log("Falling back to Flash without search grounding...");
-        activeGroundingEnabled = false;
-        // Retry the same fast model without search tools before switching models.
-        resultStream = await initStream("gemini-2.5-flash", false);
+      const fallbackModel = getGeminiFallbackModel(primaryModel);
+      activeGroundingEnabled = false;
+
+      // A quota error is not fixed by repeating the same request without search.
+      // Try one distinct, configured Flash fallback; never fall back to the deprecated 2.5 Pro ID.
+      if (isGeminiQuotaError(primaryErr) || isGeminiModelUnavailableError(primaryErr)) {
+        if (fallbackModel === primaryModel) throw primaryErr;
+        console.warn(`Primary Gemini model ${primaryModel} is unavailable or quota-limited; trying ${fallbackModel} once.`);
+        resultStream = await initStream(fallbackModel, false);
+      } else if (useSearch) {
+        // Search grounding itself may fail; retry the same model once without grounding.
+        console.log("Retrying the primary model without search grounding...");
+        resultStream = await initStream(primaryModel, false);
       } else {
-        // Only use known, explicitly routed models for fallback.
-        const fallbackModel = primaryModel === "gemini-2.5-pro" ? "gemini-2.5-flash" : "gemini-2.5-pro";
+        if (fallbackModel === primaryModel) throw primaryErr;
         resultStream = await initStream(fallbackModel, false);
       }
     }
@@ -3378,8 +3422,10 @@ app.post("/api/chat/stream", async (req, res) => {
 
     let friendlyError = "Failed to generate response. Please try again.";
     const errMsg = err?.message || String(err);
-    if (errMsg.includes("429") || errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("quota")) {
-      friendlyError = "Gemini API rate limit or quota exceeded. Please wait a moment and try again.";
+    if (isGeminiQuotaError(err)) {
+      friendlyError = "Gemini API quota is exhausted for the selected model or its fallback. Check Google AI Studio usage and billing, or wait until the quota reset time reported by Google. Repeating the same request will not restore quota.";
+    } else if (isGeminiModelUnavailableError(err)) {
+      friendlyError = `Gemini model unavailable (${primaryModel}). Check model access in Google AI Studio or configure GEMINI_FLASH_MODEL / GEMINI_PRO_MODEL for a model enabled on your API project.`;
     } else if (errMsg.includes("API key") || errMsg.includes("API_KEY_INVALID")) {
       friendlyError = "Invalid or missing GEMINI_API_KEY. Please verify your environment configuration.";
     } else if (errMsg.length < 200) {
