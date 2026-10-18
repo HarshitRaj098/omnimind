@@ -10,7 +10,7 @@ interface SidebarProps {
   onNewChat: () => void;
   onDelete: (id: string) => Promise<boolean>;
   onRename: (id: string, newTitle: string) => Promise<string | null>;
-  onTogglePin: (id: string, pinned: boolean) => void;
+  onTogglePin: (id: string, pinned: boolean) => Promise<boolean>;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
   onOpenSettings: () => void;
@@ -157,6 +157,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const cancelRename = (e: React.MouseEvent) => {
     e.stopPropagation();
     setEditingId(null);
+  };
+
+  const handleTogglePin = async (id: string, pinned: boolean, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const saved = await onTogglePin(id, pinned);
+    if (saved) {
+      setSearchResults(previous =>
+        previous.map(conversation =>
+          conversation.id === id ? { ...conversation, pinned } : conversation
+        )
+      );
+    }
   };
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
@@ -319,10 +331,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {!isEditing && (
                     <div className="flex md:hidden md:group-hover:flex items-center gap-1 shrink-0 ml-2">
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onTogglePin(c.id, !Boolean(c.pinned));
-                        }}
+                        onClick={(e) => handleTogglePin(c.id, !Boolean(c.pinned), e)}
                         className="min-h-7 min-w-7 p-1 text-[var(--claude-text-muted)] hover:text-[var(--claude-text)] rounded-lg hover:bg-[var(--claude-border)] text-[10px]"
                         title={c.pinned ? "Unpin conversation" : "Pin conversation"}
                         aria-label={c.pinned ? "Unpin conversation" : "Pin conversation"}

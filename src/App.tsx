@@ -504,7 +504,7 @@ export default function App() {
     }
   };
 
-  const handleTogglePinConversation = async (id: string, pinned: boolean) => {
+  const handleTogglePinConversation = async (id: string, pinned: boolean): Promise<boolean> => {
     try {
       const res = await fetch(`/api/conversations/${encodeURIComponent(id)}`, {
         method: "PUT",
@@ -514,7 +514,7 @@ export default function App() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error || "Failed to update pinned conversation.");
-        return;
+        return false;
       }
 
       setConversations(prev =>
@@ -531,9 +531,11 @@ export default function App() {
         prev?.id === id ? { ...prev, pinned: Boolean(data.pinned) } : prev
       );
       setError(null);
+      return true;
     } catch (e) {
       console.error("Failed to update pinned conversation:", e);
       setError("Could not update the pinned state. Check the server connection.");
+      return false;
     }
   };
 
