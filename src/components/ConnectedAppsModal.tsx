@@ -36,6 +36,23 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
   const [gmailMessages, setGmailMessages] = useState<Array<{ id: string; subject: string; from: string; date: string; snippet: string }>>([]);
   const [driveFiles, setDriveFiles] = useState<Array<{ id: string; name: string; mimeType?: string; modifiedTime?: string; webViewLink?: string }>>([]);
   const [calendarEvents, setCalendarEvents] = useState<Array<{ id: string; summary: string; start: string; end: string; htmlLink: string; location: string }>>([]);
+  const [emailTo, setEmailTo] = useState("");
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [eventTitle, setEventTitle] = useState("");
+  const [eventStart, setEventStart] = useState(() => {
+    const date = new Date(Date.now() + 60 * 60 * 1000);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  });
+  const [eventEnd, setEventEnd] = useState(() => {
+    const date = new Date(Date.now() + 90 * 60 * 1000);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  });
+  const [eventLocation, setEventLocation] = useState("");
+  const [selectedDriveFile, setSelectedDriveFile] = useState<{ id: string; name: string; mimeType?: string } | null>(null);
+  const [documentText, setDocumentText] = useState("");
+  const [sheetRange, setSheetRange] = useState("A1");
+  const [sheetValues, setSheetValues] = useState("");
 
   useEffect(() => {
     if (isOpen) {
@@ -146,6 +163,110 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       }
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : "Could not load Google Calendar events.");
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  };
+
+  const sendEmail = async () => {
+    if (!emailTo.trim() || !emailSubject.trim() || !emailBody.trim()) {
+      setWorkspaceError("Fill in the recipient, subject, and message before sending.");
+      return;
+    }
+    if (!window.confirm(`Send this email to ${emailTo.trim()}?\n\nSubject: ${emailSubject.trim()}\n\nThis sends a real email from your connected Gmail account.`)) return;
+    setWorkspaceLoading(true);
+    setWorkspaceError(null);
+    try {
+      const response = await fetch("/api/apps/gmail/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: emailTo.trim(), subject: emailSubject.trim(), body: emailBody })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not send the email.");
+      setWorkspaceError(`Email sent successfully. Message ID: ${data.messageId || "confirmed"}`);
+      setEmailTo(""); setEmailSubject(""); setEmailBody("");
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : "Could not send the email.");
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  };
+
+  const createCalendarEvent = async () => {
+    if (!eventTitle.trim() || !eventStart || !eventEnd || new Date(eventEnd).getTime() <= new Date(eventStart).getTime()) {
+      setWorkspaceError("Enter an event title and valid times; the end must be after the start.");
+      return;
+    }
+    const startLabel = new Date(eventStart).toLocaleString();
+    const endLabel = new Date(eventEnd).toLocaleString();
+    if (!window.confirm(`Create this Google Calendar event?\n\n${eventTitle.trim()}\n${startLabel} – ${endLabel}\n${eventLocation.trim()}\n\nThis creates a real event on your primary calendar.`)) return;
+    setWorkspaceLoading(true);
+    setWorkspaceError(null);
+    try {
+      const response = await fetch("/api/apps/calendar/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          summary: eventTitle.trim(),
+          start: new Date(eventStart).toISOString(),
+          end: new Date(eventEnd).toISOString(),
+          location: eventLocation.trim()
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not create Calendar event.");
+      setWorkspaceError("Calendar event created successfully.");
+      setEventTitle(""); setEventLocation("");
+      await loadCalendar();
+      if (data.htmlLink) window.open(data.htmlLink, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : "Could not create Calendar event.");
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  };
+
+  const saveDriveEdit = async () => {
+    if (!selectedDriveFile) return;
+    const isDoc = selectedDriveFile.mimeType === "application/vnd.google-apps.document";
+    const isSheet = selectedDriveFile.mimeType === "application/vnd.google-apps.spreadsheet";
+    if (!isDoc && !isSheet) {
+      setWorkspaceError("Editing is available for native Google Docs and Sheets files only.");
+      return;
+    }
+    let values: string[][] = [];
+    if (isDoc && !documentText.trim()) {
+      setWorkspaceError("Enter the text you want to append to this document.");
+      return;
+    }
+    if (isSheet) {
+      values = sheetValues.split("\n").filter((row) => row.length > 0).map((row) => row.split("\t"));
+      if (!values.length || values.some(row => row.some(cell => cell.length > 2000))) {
+        setWorkspaceError("Enter spreadsheet rows as tab-separated values, one row per line.");
+        return;
+      }
+    }
+    const operation = isDoc ? "append text to" : `write values to ${sheetRange} in`;
+    if (!window.confirm(`Confirm: ${operation} “${selectedDriveFile.name}”?\n\nThis modifies the live Google file.`)) return;
+    setWorkspaceLoading(true);
+    setWorkspaceError(null);
+    try {
+      const response = await fetch(isDoc ? "/api/apps/docs/append" : "/api/apps/sheets/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(isDoc
+          ? { documentId: selectedDriveFile.id, text: documentText }
+          : { spreadsheetId: selectedDriveFile.id, range: sheetRange, values })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not update the Google file.");
+      setWorkspaceError(isDoc ? "Text appended to Google Docs successfully." : `Updated ${data.updatedCells || 0} spreadsheet cells successfully.`);
+      setDocumentText(""); setSheetValues("");
+      setSelectedDriveFile(null);
+      await searchDrive();
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : "Could not update the Google file.");
     } finally {
       setWorkspaceLoading(false);
     }
@@ -276,7 +397,10 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
             </p>
           </div>
           {googleAccountEmail ? (
-            <Button size="sm" variant="danger" disabled={loading} onClick={disconnectGoogle}>Disconnect Google</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="secondary" disabled={!googleOAuthConfigured || loading} onClick={connectGoogle}>Reauthorize for write access</Button>
+              <Button size="sm" variant="danger" disabled={loading} onClick={disconnectGoogle}>Disconnect Google</Button>
+            </div>
           ) : (
             <Button size="sm" variant="primary" disabled={!googleOAuthConfigured || loading} onClick={connectGoogle}>Connect Google</Button>
           )}
@@ -285,7 +409,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
         <div className="rounded-xl border border-[var(--claude-border)] bg-[var(--claude-surface)] p-4 space-y-3">
           <div>
             <h3 className="text-xs font-semibold text-[var(--claude-text)]">Google Workspace tools</h3>
-            <p className="mt-1 text-[11px] text-[var(--claude-text-muted)]">Read your inbox or search Drive using the account you authorized above. These actions are read-only.</p>
+            <p className="mt-1 text-[11px] text-[var(--claude-text-muted)]">Read Gmail, search Drive, send email, create Calendar events, and edit native Docs/Sheets. Write actions ask for confirmation first. Reauthorize Google to grant the new write scopes.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="secondary" disabled={workspaceLoading || !googleAccountEmail} onClick={() => void loadInbox()}>
@@ -344,14 +468,73 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
                     <p className="truncate text-xs font-medium text-[var(--claude-text)]">{file.name}</p>
                     <p className="text-[10px] text-[var(--claude-text-muted)]">{file.mimeType || "Google Drive file"}{file.modifiedTime ? ` · Updated ${new Date(file.modifiedTime).toLocaleDateString()}` : ""}</p>
                   </div>
-                  {file.webViewLink && <a className="shrink-0 text-xs underline text-[var(--claude-text-secondary)]" href={file.webViewLink} target="_blank" rel="noreferrer">Open</a>}
+                  <div className="flex shrink-0 items-center gap-3">
+                    {file.mimeType === "application/vnd.google-apps.document" || file.mimeType === "application/vnd.google-apps.spreadsheet" ? (
+                      <button type="button" className="text-xs underline text-[var(--claude-text-secondary)]" onClick={() => { setSelectedDriveFile({ id: file.id, name: file.name, mimeType: file.mimeType }); setWorkspaceError(null); }}>
+                        Edit
+                      </button>
+                    ) : null}
+                    {file.webViewLink && <a className="text-xs underline text-[var(--claude-text-secondary)]" href={file.webViewLink} target="_blank" rel="noreferrer">Open</a>}
+                  </div>
                 </div>
               ))}
               {driveFiles.length === 0 && <p className="text-xs text-[var(--claude-text-muted)]">No matching files.</p>}
             </div>
           )}
         </div>
-\n        {testResult && (
+\n        <div className="rounded-xl border border-[var(--claude-border)] bg-[var(--claude-surface)] p-4 space-y-3">
+          <div>
+            <h3 className="text-xs font-semibold text-[var(--claude-text)]">Send an email</h3>
+            <p className="mt-1 text-[11px] text-[var(--claude-text-muted)]">A confirmation prompt appears before Gmail sends anything. Requires Gmail send permission.</p>
+          </div>
+          <input value={emailTo} onChange={event => setEmailTo(event.target.value)} type="email" placeholder="Recipient email" aria-label="Recipient email" className="w-full rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" />
+          <input value={emailSubject} onChange={event => setEmailSubject(event.target.value)} placeholder="Subject" aria-label="Email subject" className="w-full rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" />
+          <textarea value={emailBody} onChange={event => setEmailBody(event.target.value)} rows={4} placeholder="Write your message…" aria-label="Email message" className="w-full resize-y rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" />
+          <div className="flex justify-end">
+            <Button size="sm" variant="primary" disabled={workspaceLoading || !googleAccountEmail || !emailTo.trim() || !emailSubject.trim() || !emailBody.trim()} onClick={() => void sendEmail()}>{workspaceLoading ? "Working…" : "Review & send email"}</Button>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-[var(--claude-border)] bg-[var(--claude-surface)] p-4 space-y-3">
+          <div>
+            <h3 className="text-xs font-semibold text-[var(--claude-text)]">Create a Calendar event</h3>
+            <p className="mt-1 text-[11px] text-[var(--claude-text-muted)]">Times use your local time zone. OmniMind confirms details before creating the live event.</p>
+          </div>
+          <input value={eventTitle} onChange={event => setEventTitle(event.target.value)} placeholder="Event title" aria-label="Calendar event title" className="w-full rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <label className="text-[11px] text-[var(--claude-text-muted)]">Start time<input type="datetime-local" value={eventStart} onChange={event => setEventStart(event.target.value)} className="mt-1 w-full rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" /></label>
+            <label className="text-[11px] text-[var(--claude-text-muted)]">End time<input type="datetime-local" value={eventEnd} onChange={event => setEventEnd(event.target.value)} className="mt-1 w-full rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" /></label>
+          </div>
+          <input value={eventLocation} onChange={event => setEventLocation(event.target.value)} placeholder="Location (optional)" aria-label="Calendar event location" className="w-full rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" />
+          <div className="flex justify-end">
+            <Button size="sm" variant="primary" disabled={workspaceLoading || !googleAccountEmail || !eventTitle.trim()} onClick={() => void createCalendarEvent()}>{workspaceLoading ? "Working…" : "Review & create event"}</Button>
+          </div>
+        </div>
+
+        {selectedDriveFile && (
+          <div className="rounded-xl border border-[var(--claude-border)] bg-[var(--claude-surface)] p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-xs font-semibold text-[var(--claude-text)]">Edit Google file</h3>
+                <p className="mt-1 text-[11px] text-[var(--claude-text-muted)]">{selectedDriveFile.name} · {selectedDriveFile.mimeType === "application/vnd.google-apps.document" ? "append text to document" : "write values to spreadsheet cells"}</p>
+              </div>
+              <button type="button" className="text-xs underline text-[var(--claude-text-muted)]" onClick={() => setSelectedDriveFile(null)}>Cancel</button>
+            </div>
+            {selectedDriveFile.mimeType === "application/vnd.google-apps.document" ? (
+              <textarea value={documentText} onChange={event => setDocumentText(event.target.value)} rows={4} placeholder="Text to append to the end of this document…" aria-label="Text to append to Google Docs" className="w-full resize-y rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" />
+            ) : (
+              <>
+                <input value={sheetRange} onChange={event => setSheetRange(event.target.value)} placeholder="A1 or Sheet1!A1:B3" aria-label="Spreadsheet range" className="w-full rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" />
+                <textarea value={sheetValues} onChange={event => setSheetValues(event.target.value)} rows={4} placeholder={"One row per line; separate cells with tabs\nExample: Name\tScore"} aria-label="Spreadsheet values" className="w-full resize-y rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" />
+              </>
+            )}
+            <div className="flex justify-end">
+              <Button size="sm" variant="primary" disabled={workspaceLoading || !googleAccountEmail} onClick={() => void saveDriveEdit()}>{workspaceLoading ? "Saving…" : "Review & save changes"}</Button>
+            </div>
+          </div>
+        )}
+
+        {testResult && (
           <div className="p-3 rounded-xl bg-[var(--claude-bg)] border border-[var(--claude-border)] text-xs font-mono text-[var(--claude-text-secondary)]">
             {testResult}
           </div>
