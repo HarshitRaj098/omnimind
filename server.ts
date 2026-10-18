@@ -3163,10 +3163,22 @@ async function buildConnectedAppToolContext(message: string): Promise<string> {
     try {
       const token = await getGoogleAccessToken(GMAIL_READ_SCOPE);
       let query = "in:inbox newer_than:30d";
-      if (/\bunread\b/i.test(message)) query = "in:inbox is:unread newer_than:30d";
-      else {
-        const keyword = message.match(/\b(invoice|receipt|resume|offer|interview)\b/i)?.[0];
-        if (keyword) query = "in:inbox " + keyword + " newer_than:90d";
+      const fromMatch = message.match(/\bfrom\s+([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|[a-z0-9][a-z0-9._-]{1,60})\b/i);
+      const subjectMatch = message.match(/\bsubject\s+(?:"([^"]{1,100})"|'([^']{1,100})'|([a-z0-9][a-z0-9_-]{1,60}))/i);
+      const keyword = message.match(/\b(invoice|receipt|resume|offer|interview|subscription|payment|order|meeting|assignment|exam|application)\b/i)?.[0];
+      if (/\bunread\b/i.test(message)) query += " is:unread";
+      if (/\btoday\b/i.test(message)) query = query.replace(/newer_than:\d+d/, "newer_than:1d");
+      else if (/\byesterday\b/i.test(message)) query = query.replace(/newer_than:\d+d/, "newer_than:2d");
+      else if (/\bthis week\b/i.test(message)) query = query.replace(/newer_than:\d+d/, "newer_than:7d");
+      if (fromMatch) {
+        const sender = fromMatch[1].replace(/[^a-z0-9@._+-]/gi, "").slice(0, 100);
+        if (sender) query += " from:" + sender;
+      }
+      if (subjectMatch) {
+        const subject = (subjectMatch[1] || subjectMatch[2] || subjectMatch[3] || "").replace(/["\\]/g, " ").trim().slice(0, 100);
+        if (subject) query += ' subject:("' + subject + '")';
+      } else if (keyword) {
+        query += " " + keyword;
       }
       const url = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
       url.searchParams.set("maxResults", "5"); url.searchParams.set("q", query);
