@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Modal, Button, Input, Textarea, StatusText } from "./ui";
 import { AppIcon } from "./AppIcon";
 
@@ -34,6 +34,8 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<Partial<Skill>>({});
   const [isCreating, setIsCreating] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -140,6 +142,107 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
     }
   };
 
+  const handleExportSkill = (skill: Skill) => {
+    const safeName = skill.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "skill";
+    const content = [
+      "---",
+      `name: ${JSON.stringify(skill.name)}`,
+      `description: ${JSON.stringify(skill.description)}`,
+      `category: ${JSON.stringify(skill.category)}`,
+      `version: ${JSON.stringify(skill.version)}`,
+      "---",
+      "",
+      skill.instructions || "",
+      "",
+    ].join("\\n");
+    const url = URL.createObjectURL(new Blob([content], { type: "text/markdown;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${safeName}.SKILL.md`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const readSkillField = (frontmatter: string, field: string) => {
+    const match = frontmatter.match(new RegExp("^" + field + ":\\s*(.+)$", "m"));
+    if (!match) return "";
+    const value = match[1].trim();
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value.replace(/^["']|["']$/g, "");
+    }
+  };
+
+  const handleImportSkill = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setActionError(null);
+    try {
+      if (file.size > 1024 * 1024) throw new Error("Skill files must be 1 MB or smaller.");
+      const text = await file.text();
+      const frontmatterMatch = text.match(/^---\\s*\\r?\\n([\\s\\S]*?)\\r?\\n---\\s*(?:\\r?\\n|$)/);
+      const frontmatter = frontmatterMatch?.[1] || "";
+      const instructions = frontmatterMatch ? text.slice(frontmatterMatch[0].length).trim() : text.trim();
+      const name = readSkillField(frontmatter, "name") || file.name.replace(/\\.skill\\.md$/i, "").replace(/\\.md$/i, "").replace(/[-_]/g, " ");
+      const description = readSkillField(frontmatter, "description") || "Imported reusable instructions";
+      if (!name.trim() || !instructions.trim()) {
+        throw new Error("The SKILL.md file needs a name and instruction content.");
+      }
+      const res = await fetch("/api/skills", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          description: description.trim(),
+          category: readSkillField(frontmatter, "category") || "imported",
+          instructions,
+          enabled: true,
+          version: readSkillField(frontmatter, "version") || "1.0.0",
+          author: "User",
+          requiredCapabilities: [],
+        }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result?.error || "Couldn't import this skill.");
+      setSkills((prev) => [result, ...prev]);
+      setSelectedSkill(result);
+      setIsCreating(false);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Couldn't import this skill.");
+    }
+  };
+
+  const handleDuplicateSkill = async (skill: Skill) => {
+    setActionError(null);
+    try {
+      const res = await fetch("/api/skills", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `${skill.name} (copy)`,
+          description: skill.description,
+          category: skill.category,
+          instructions: skill.instructions,
+          enabled: true,
+          version: skill.version,
+          author: "User",
+          requiredCapabilities: skill.requiredCapabilities || [],
+        }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result?.error || "Couldn't duplicate this skill.");
+      setSkills((prev) => [result, ...prev]);
+      setSelectedSkill(result);
+      setIsCreating(false);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Couldn't duplicate this skill.");
+    }
+  };
+
   const filtered = skills.filter(
     (s) =>
       s.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -161,9 +264,23 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
         </Button>
       }
     >
+      {actionError && (
+        <div role="alert" className="mb-3 flex items-start justify-between gap-3 rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs text-rose-500">
+          <span>{actionError}</span>
+          <button type="button" onClick={() => setActionError(null)} aria-label="Dismiss skill error">×</button>
+        </div>
+      )}
       <div className="flex flex-col md:flex-row gap-5 h-[520px]">
         {/* Left: Skills List */}
         <div className="w-full md:w-72 flex flex-col border border-[var(--claude-border)] rounded-xl bg-[var(--claude-bg)] overflow-hidden shrink-0">
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".md,.skill.md,text/markdown,text/plain"
+            className="hidden"
+            onChange={handleImportSkill}
+            aria-label="Import SKILL.md"
+          />
           <div className="p-3 border-b border-[var(--claude-border)] flex items-center justify-between gap-2">
             <Input
               placeholder="Filter skills..."
@@ -171,17 +288,29 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
               onChange={(e) => setSearch(e.target.value)}
               icon={<AppIcon name="search" size={13} />}
             />
-            <Button
-              size="sm"
-              variant="primary"
-              icon={<AppIcon name="plus" size={14} />}
-              onClick={() => {
-                setIsCreating(true);
-                setIsEditing(false);
-                setEditForm({ category: "custom", enabled: true });
-              }}
-              title="Create New Skill"
-            />
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<AppIcon name="upload" size={14} />}
+                onClick={() => importInputRef.current?.click()}
+                title="Import SKILL.md"
+              >
+                Import
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                icon={<AppIcon name="plus" size={14} />}
+                onClick={() => {
+                  setActionError(null);
+                  setIsCreating(true);
+                  setIsEditing(false);
+                  setEditForm({ category: "custom", enabled: true });
+                }}
+                title="Create New Skill"
+              />
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
@@ -283,6 +412,22 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="quiet"
+                    onClick={() => handleExportSkill(selectedSkill)}
+                    title="Export portable SKILL.md"
+                  >
+                    Export
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="quiet"
+                    onClick={() => handleDuplicateSkill(selectedSkill)}
+                    title="Create a copy of this skill"
+                  >
+                    Duplicate
+                  </Button>
                   <Button
                     size="sm"
                     variant={activeSkillIds.includes(selectedSkill.id) ? "primary" : "secondary"}
