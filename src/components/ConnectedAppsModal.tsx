@@ -40,6 +40,8 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
   const [githubChangeContent, setGithubChangeContent] = useState("");
   const [githubChangeLoading, setGithubChangeLoading] = useState(false);
   const [workspaceQuery, setWorkspaceQuery] = useState("");
+  const [youtubeQuery, setYoutubeQuery] = useState("");
+  const [youtubeVideos, setYoutubeVideos] = useState<Array<{ id: string; title: string; description: string; channelTitle: string; publishedAt: string; thumbnailUrl: string; url: string }>>([]);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [gmailMessages, setGmailMessages] = useState<Array<{ id: string; subject: string; from: string; date: string; snippet: string }>>([]);
@@ -247,6 +249,24 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       if (!Array.isArray(data.files) || data.files.length === 0) setWorkspaceError("No matching Drive files found.");
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : "Could not search Google Drive.");
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  };
+
+  const searchYouTube = async () => {
+    if (!youtubeQuery.trim()) return;
+    setWorkspaceLoading(true);
+    setWorkspaceError(null);
+    setYoutubeVideos([]);
+    try {
+      const response = await fetch(`/api/apps/youtube/search?q=${encodeURIComponent(youtubeQuery.trim())}`, { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not search YouTube.");
+      setYoutubeVideos(Array.isArray(data.videos) ? data.videos : []);
+      if (!Array.isArray(data.videos) || data.videos.length === 0) setWorkspaceError("No YouTube videos matched that search.");
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : "Could not search YouTube.");
     } finally {
       setWorkspaceLoading(false);
     }
@@ -593,6 +613,34 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
               {workspaceLoading ? "Searching…" : "Search Drive"}
             </Button>
           </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              value={youtubeQuery}
+              onChange={(event) => setYoutubeQuery(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") void searchYouTube(); }}
+              placeholder="Search YouTube videos"
+              aria-label="Search YouTube videos"
+              className="min-w-0 flex-1 rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)] outline-none focus:border-[var(--claude-text-muted)]"
+            />
+            <Button size="sm" variant="secondary" disabled={workspaceLoading || !googleAccountEmail || !youtubeQuery.trim()} onClick={() => void searchYouTube()}>
+              {workspaceLoading ? "Searching…" : "Search YouTube"}
+            </Button>
+          </div>
+          {youtubeVideos.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[10px] uppercase tracking-wider text-[var(--claude-text-muted)]">YouTube search results</p>
+              {youtubeVideos.map(video => (
+                <a key={video.id} href={video.url} target="_blank" rel="noreferrer" className="flex gap-3 rounded-lg border border-[var(--claude-border-subtle)] p-3 hover:border-[var(--claude-border)]">
+                  {video.thumbnailUrl && <img src={video.thumbnailUrl} alt="" loading="lazy" className="h-16 w-28 shrink-0 rounded object-cover" />}
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-[var(--claude-text)]">{video.title}</p>
+                    <p className="mt-1 text-[10px] text-[var(--claude-text-muted)]">{video.channelTitle}{video.publishedAt ? ` · ${new Date(video.publishedAt).toLocaleDateString()}` : ""}</p>
+                    {video.description && <p className="mt-1 text-xs text-[var(--claude-text-secondary)] line-clamp-2">{video.description}</p>}
+                  </div>
+                </a>
+              ))}
+            </div>
+          )}
           {workspaceError && <p role="alert" className="text-xs text-red-400">{workspaceError}</p>}
           {googleTasks.length > 0 && (
             <div className="space-y-2">
