@@ -1685,13 +1685,13 @@ function githubApiHeaders(accessToken: string) {
 }
 
 function safeGitHubSourcePath(filePath: string) {
-  if (!filePath || filePath.length > 240 || filePath.startsWith("/") || filePath.includes("\\\\") ||
+  if (!filePath || filePath.length > 240 || filePath.startsWith("/") || filePath.includes("\\") ||
       filePath.split("/").some(part => !part || part === "." || part === "..") ||
-      /(^|\\/)\\.env($|\\.)/i.test(filePath) ||
-      /(^|\\/)(secrets?|credentials?)(\\/|\\.|$)/i.test(filePath) ||
-      /(^|\\/)\\.github\\/workflows(\\/|$)/i.test(filePath) ||
-      /(^|\\/)(package-lock\\.json|pnpm-lock\\.yaml|yarn\\.lock|bun\\.lockb?)$/i.test(filePath) ||
-      !/\\.(ts|tsx|js|jsx|mjs|cjs|json|md|mdx|css|scss|html|py|go|rs|java|kt|yml|yaml|toml|txt|svg)$/i.test(filePath)) {
+      /(^|\/)\.env($|\.)/i.test(filePath) ||
+      /(^|\/)(secrets?|credentials?)(\/|\.|$)/i.test(filePath) ||
+      /(^|\/)\.github\/workflows(\/|$)/i.test(filePath) ||
+      /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?)$/i.test(filePath) ||
+      !/\.(ts|tsx|js|jsx|mjs|cjs|json|md|mdx|css|scss|html|py|go|rs|java|kt|yml|yaml|toml|txt|svg)$/i.test(filePath)) {
     return false;
   }
   return true;
