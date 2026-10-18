@@ -154,7 +154,7 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
       "",
       skill.instructions || "",
       "",
-    ].join("\\n");
+    ].join("\n");
     const url = URL.createObjectURL(new Blob([content], { type: "text/markdown;charset=utf-8" }));
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -166,7 +166,7 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
   };
 
   const readSkillField = (frontmatter: string, field: string) => {
-    const match = frontmatter.match(new RegExp("^" + field + ":\\s*(.+)$", "m"));
+    const match = frontmatter.match(new RegExp("^" + field + ":\s*(.+)$", "m"));
     if (!match) return "";
     const value = match[1].trim();
     try {
@@ -184,10 +184,10 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
     try {
       if (file.size > 1024 * 1024) throw new Error("Skill files must be 1 MB or smaller.");
       const text = await file.text();
-      const frontmatterMatch = text.match(/^---\\s*\\r?\\n([\\s\\S]*?)\\r?\\n---\\s*(?:\\r?\\n|$)/);
+      const frontmatterMatch = text.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/);
       const frontmatter = frontmatterMatch?.[1] || "";
       const instructions = frontmatterMatch ? text.slice(frontmatterMatch[0].length).trim() : text.trim();
-      const name = readSkillField(frontmatter, "name") || file.name.replace(/\\.skill\\.md$/i, "").replace(/\\.md$/i, "").replace(/[-_]/g, " ");
+      const name = readSkillField(frontmatter, "name") || file.name.replace(/\.skill\.md$/i, "").replace(/\.md$/i, "").replace(/[-_]/g, " ");
       const description = readSkillField(frontmatter, "description") || "Imported reusable instructions";
       if (!name.trim() || !instructions.trim()) {
         throw new Error("The SKILL.md file needs a name and instruction content.");
@@ -433,7 +433,7 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
                   <Button
                     size="sm"
                     variant="quiet"
-                    onClick={() => handleExportSkill(selectedSkill)
+                    onClick={() => handleExportSkill(selectedSkill)}
                     title="Export portable SKILL.md"
                   >
                     Export
