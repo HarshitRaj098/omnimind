@@ -18,8 +18,10 @@ const CONV_FILE = path.join(DATA_DIR, "conversations.json");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 const APPS_FILE = path.join(DATA_DIR, "connected_apps.json");
 const GOOGLE_TOKENS_FILE = path.join(DATA_DIR, "google_oauth_tokens.json");
+const YOUTUBE_TOKENS_FILE = path.join(DATA_DIR, "youtube_oauth_tokens.json");
 const GITHUB_TOKENS_FILE = path.join(DATA_DIR, "github_oauth_tokens.json");
 const googleOAuthStates = new Map<string, number>();
+const youtubeOAuthStates = new Map<string, number>();
 const githubOAuthStates = new Map<string, number>();
 type PendingChatWrite = { id: string; type: "gmail_send" | "calendar_create" | "google_tasks_create" | "google_tasks_complete" | "google_docs_append" | "google_sheets_update"; payload: Record<string, unknown>; summary: string; details: string; status: "pending" | "executing" | "confirmed" | "cancelled" | "failed"; createdAt: number };
 const pendingChatWrites = new Map<string, PendingChatWrite>();
@@ -411,6 +413,24 @@ function loadGoogleOAuthTokens(): GoogleOAuthTokens | null {
     console.error("Could not read Google OAuth tokens:", error);
     return null;
   }
+}
+
+function loadYouTubeOAuthTokens(): GoogleOAuthTokens | null {
+  try {
+    if (!fs.existsSync(YOUTUBE_TOKENS_FILE)) return null;
+    return JSON.parse(fs.readFileSync(YOUTUBE_TOKENS_FILE, "utf-8")) as GoogleOAuthTokens;
+  } catch (error) {
+    console.error("Could not read YouTube OAuth tokens:", error);
+    return null;
+  }
+}
+
+function saveYouTubeOAuthTokens(tokens: GoogleOAuthTokens) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  const temporaryFile = YOUTUBE_TOKENS_FILE + ".tmp";
+  fs.writeFileSync(temporaryFile, JSON.stringify(tokens, null, 2), { encoding: "utf-8", mode: 0o600 });
+  fs.renameSync(temporaryFile, YOUTUBE_TOKENS_FILE);
+  try { fs.chmodSync(YOUTUBE_TOKENS_FILE, 0o600); } catch { /* Platform-dependent permissions. */ }
 }
 
 
@@ -1839,8 +1859,7 @@ const GOOGLE_OAUTH_SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/tasks.readonly",
-  "https://www.googleapis.com/auth/tasks",
-  "https://www.googleapis.com/auth/youtube.readonly"
+  "https://www.googleapis.com/auth/tasks"
 ];
 
 function googleOAuthConfig() {
@@ -1860,6 +1879,7 @@ app.get("/api/apps/status", (_req, res) => {
     googleOAuthConfigured: config.configured,
     googleAccountEmail: tokens?.email || null,
     googleConnected: Boolean(tokens),
+    youtubeConnected: Boolean(loadYouTubeOAuthTokens()),
     githubOAuthConfigured: githubConfig.configured,
     githubLogin: githubTokens?.login || null,
     githubConnected: Boolean(githubTokens && githubTokens.scopes.includes("read:user"))
@@ -2530,12 +2550,99 @@ app.get("/api/apps/drive/files", async (req, res) => {
 });
 
 
-// Read-only YouTube Data API search, authorized by the user's Google OAuth connection.
+// YouTube uses a separate consent flow and token store, independent from Drive/Gmail scopes.
+app.get("/api/apps/youtube/connect", (_req, res) => {
+  const config = googleOAuthConfig();
+  if (!config.configured) return res.status(503).type("text/plain").send("Google OAuth is not configured on the server.");
+  const now = Date.now();
+  for (const [state, createdAt] of youtubeOAuthStates) if (now - createdAt > 10 * 60 * 1000) youtubeOAuthStates.delete(state);
+  const state = randomBytes(32).toString("hex");
+  youtubeOAuthStates.set(state, now);
+  const authorizeUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  authorizeUrl.searchParams.set("client_id", config.clientId!);
+  authorizeUrl.searchParams.set("redirect_uri", config.redirectUri);
+  authorizeUrl.searchParams.set("response_type", "code");
+  authorizeUrl.searchParams.set("scope", "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/youtube.readonly");
+  authorizeUrl.searchParams.set("access_type", "offline");
+  authorizeUrl.searchParams.set("prompt", "select_account consent");
+  authorizeUrl.searchParams.set("state", state);
+  return res.redirect(authorizeUrl.toString());
+});
+
+app.get("/api/apps/youtube/callback", async (req, res) => {
+  const state = typeof req.query.state === "string" ? req.query.state : "";
+  const createdAt = youtubeOAuthStates.get(state);
+  youtubeOAuthStates.delete(state);
+  if (!state || !createdAt || Date.now() - createdAt > 10 * 60 * 1000) return res.status(400).type("text/plain").send("YouTube sign-in expired or OAuth state was invalid. Try again.");
+  if (typeof req.query.error === "string") return res.redirect("/?connected_apps=youtube_error");
+  const code = typeof req.query.code === "string" ? req.query.code : "";
+  if (!code) return res.status(400).type("text/plain").send("Google did not return an authorization code.");
+  const config = googleOAuthConfig();
+  if (!config.configured) return res.status(503).type("text/plain").send("Google OAuth is not configured on the server.");
+  try {
+    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ code, client_id: config.clientId!, client_secret: config.clientSecret!, redirect_uri: config.redirectUri, grant_type: "authorization_code" }),
+      signal: AbortSignal.timeout(10_000)
+    });
+    const tokenData = await tokenResponse.json() as { access_token?: string; refresh_token?: string; expires_in?: number; scope?: string; error?: string };
+    if (!tokenResponse.ok || !tokenData.access_token || tokenData.error) throw new Error(tokenData.error || "YouTube token exchange failed.");
+    const userResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", { headers: { Authorization: `Bearer ${tokenData.access_token}` }, signal: AbortSignal.timeout(10_000) });
+    const userData = await userResponse.json() as { email?: string };
+    saveYouTubeOAuthTokens({
+      access_token: tokenData.access_token,
+      refresh_token: tokenData.refresh_token || loadYouTubeOAuthTokens()?.refresh_token,
+      scope: tokenData.scope || "https://www.googleapis.com/auth/youtube.readonly",
+      expires_at: Date.now() + Math.max(60, tokenData.expires_in || 3600) * 1000,
+      connectedAt: Date.now(),
+      email: userData.email
+    });
+    return res.redirect("/?connected_apps=youtube_success");
+  } catch (error) {
+    console.error("YouTube OAuth callback failed:", error);
+    return res.redirect("/?connected_apps=youtube_error");
+  }
+});
+
+app.post("/api/apps/youtube/disconnect", (_req, res) => {
+  try {
+    if (fs.existsSync(YOUTUBE_TOKENS_FILE)) fs.unlinkSync(YOUTUBE_TOKENS_FILE);
+    return res.json({ success: true, youtubeConnected: false });
+  } catch (error) {
+    console.error("Could not disconnect YouTube:", error);
+    return res.status(500).json({ error: "Could not disconnect YouTube." });
+  }
+});
+
+async function getYouTubeAccessToken(): Promise<string> {
+  const tokens = loadYouTubeOAuthTokens();
+  if (!tokens) throw new GoogleAppError(401, "Connect YouTube separately first.");
+  const scopes = new Set((tokens.scope || "").split(/\\s+/).filter(Boolean));
+  if (!scopes.has("https://www.googleapis.com/auth/youtube.readonly")) throw new GoogleAppError(403, "YouTube read-only permission was not granted. Reconnect YouTube.");
+  if (tokens.expires_at > Date.now() + 60_000) return tokens.access_token;
+  if (!tokens.refresh_token) throw new GoogleAppError(401, "YouTube access expired. Reconnect YouTube.");
+  const config = googleOAuthConfig();
+  if (!config.configured) throw new GoogleAppError(503, "Google OAuth is not configured on the server.");
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: config.clientId!, client_secret: config.clientSecret!, refresh_token: tokens.refresh_token, grant_type: "refresh_token" }),
+    signal: AbortSignal.timeout(10_000)
+  });
+  const data = await response.json() as { access_token?: string; expires_in?: number; scope?: string; error?: string };
+  if (!response.ok || !data.access_token) throw new GoogleAppError(401, "Google could not refresh YouTube access. Reconnect YouTube.");
+  const refreshed = { ...tokens, access_token: data.access_token, scope: data.scope || tokens.scope, expires_at: Date.now() + Math.max(60, data.expires_in || 3600) * 1000 };
+  saveYouTubeOAuthTokens(refreshed);
+  return refreshed.access_token;
+}
+
+// YouTube Data API search uses its separate OAuth token store.
 app.get("/api/apps/youtube/search", async (req, res) => {
   const query = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 200) : "";
   if (!query) return res.status(400).json({ error: "Enter a YouTube search query." });
   try {
-    const accessToken = await getGoogleAccessToken("https://www.googleapis.com/auth/youtube.readonly");
+    const accessToken = await getYouTubeAccessToken();
     const url = new URL("https://www.googleapis.com/youtube/v3/search");
     url.searchParams.set("part", "snippet");
     url.searchParams.set("type", "video");
