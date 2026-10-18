@@ -469,6 +469,21 @@ export default function App() {
               return { ...prev, messages: newMsgs };
             });
           }
+          if (data.actionConfirmation) {
+            setActiveConversation(prev => {
+              if (!prev) return prev;
+              const newMsgs = [...prev.messages];
+              const lastIndex = newMsgs.length - 1;
+              const lastMsg = newMsgs[lastIndex];
+              if (lastMsg?.role === "model") {
+                const actions = lastMsg.pendingActions || [];
+                if (!actions.some(action => action.id === data.actionConfirmation.id)) {
+                  newMsgs[lastIndex] = { ...lastMsg, pendingActions: [...actions, data.actionConfirmation] };
+                }
+              }
+              return { ...prev, messages: newMsgs };
+            });
+          }
           if (data.conversationId && !activeId) setActiveId(data.conversationId);
         } catch (err) {
           console.error("JSON parse error on SSE event:", err);
@@ -518,6 +533,49 @@ export default function App() {
       flushAccumulatedText();
       setIsGenerating(false);
       abortControllerRef.current = null;
+    }
+  };
+
+  const handleResolveChatAction = async (actionId: string, confirm: boolean) => {
+    try {
+      const response = await fetch("/api/chat/action/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: actionId, confirm })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not resolve the proposed action.");
+      const status = confirm ? (data.status || "confirmed") : "cancelled";
+      const resultText = confirm
+        ? (data.result ? JSON.stringify(data.result) : "Action confirmed.")
+        : "Cancelled. No external changes were made.";
+      setActiveConversation(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          messages: prev.messages.map(msg => ({
+            ...msg,
+            pendingActions: msg.pendingActions?.map(action => action.id === actionId
+              ? { ...action, status, result: resultText }
+              : action)
+          }))
+        };
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not resolve the proposed action.";
+      setError(message);
+      setActiveConversation(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          messages: prev.messages.map(msg => ({
+            ...msg,
+            pendingActions: msg.pendingActions?.map(action => action.id === actionId
+              ? { ...action, status: "failed", result: message }
+              : action)
+          }))
+        };
+      });
     }
   };
 
@@ -675,6 +733,7 @@ export default function App() {
           onOpenApps={() => setIsAppsModalOpen(true)}
           onOpenTasks={() => setIsScheduledTasksModalOpen(true)}
           onOpenMemory={() => setIsMemoryModalOpen(true)}
+          onResolveAction={handleResolveChatAction}
         />
 
         <div className="w-full shrink-0">
