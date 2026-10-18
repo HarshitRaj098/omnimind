@@ -2824,12 +2824,14 @@ app.post("/api/tools/execute", async (req, res) => {
   const args = req.body?.args && typeof req.body.args === "object" && !Array.isArray(req.body.args) ? req.body.args as Record<string, unknown> : {};
   const readOnlyTools = new Set(["gmail_read", "gmail_search", "drive_search", "calendar_events", "youtube_search"]);
   if (!name) return res.status(400).json({ error: "A tool name is required.", executed: false });
-  if (name === "gmail_send" || name === "calendar_create") {
+  const writeTools = new Set(["gmail_send", "calendar_create", "google_tasks_create", "google_tasks_complete"]);
+  if (writeTools.has(name)) {
     return res.status(403).json({
-      error: "This action changes external data and cannot run autonomously. Use the Connected Apps workspace to review the details and explicitly confirm the action.",
+      error: "This write action has been prepared for review but was not executed. Open Connected Apps, review the exact details, and explicitly confirm the action there.",
       tool: name,
       requiresConfirmation: true,
-      executed: false
+      executed: false,
+      proposedArgs: args
     });
   }
   if (name === "whatsapp_send") {
@@ -3592,6 +3594,7 @@ app.post("/api/chat/stream", async (req, res) => {
     basePersonaText + 
     skillsInstruction + 
     connectedContext +
+    "\n[CONNECTED-APP WRITE SAFETY]: You may prepare email, calendar, or task write proposals using the declared tools, but these calls never execute writes. If a tool response says requiresConfirmation, clearly show the proposed details, state that nothing was sent or changed, and ask the user to review and explicitly confirm through the appropriate Connected Apps flow. Never claim a write succeeded unless a confirmed write endpoint reports success." +
     connectedToolContext + 
     filesContext + 
     memoryContext + 
@@ -3671,7 +3674,11 @@ app.post("/api/chat/stream", async (req, res) => {
           { name: "gmail_search", description: "Search Gmail messages. Read-only.", parameters: { type: "OBJECT", properties: { query: { type: "STRING", description: "Gmail search syntax" } }, required: ["query"] } },
           { name: "drive_search", description: "Search Google Drive files by name. Read-only.", parameters: { type: "OBJECT", properties: { query: { type: "STRING" } }, required: ["query"] } },
           { name: "calendar_events", description: "List upcoming Google Calendar events. Read-only.", parameters: { type: "OBJECT", properties: { days: { type: "NUMBER", description: "1 to 30 upcoming days" } } } },
-          { name: "youtube_search", description: "Search YouTube videos. Read-only.", parameters: { type: "OBJECT", properties: { query: { type: "STRING" } }, required: ["query"] } }
+          { name: "youtube_search", description: "Search YouTube videos. Read-only.", parameters: { type: "OBJECT", properties: { query: { type: "STRING" } }, required: ["query"] } },
+          { name: "gmail_send", description: "Prepare an email send request. This is a write action and must not be sent without explicit user confirmation.", parameters: { type: "OBJECT", properties: { to: { type: "STRING" }, subject: { type: "STRING" }, body: { type: "STRING" } }, required: ["to", "subject", "body"] } },
+          { name: "calendar_create", description: "Prepare a calendar event creation request. This is a write action and must not be created without explicit user confirmation.", parameters: { type: "OBJECT", properties: { summary: { type: "STRING" }, start: { type: "STRING", description: "ISO 8601 start date-time" }, end: { type: "STRING", description: "ISO 8601 end date-time" }, description: { type: "STRING" }, location: { type: "STRING" } }, required: ["summary", "start", "end"] } },
+          { name: "google_tasks_create", description: "Prepare a Google Task creation request. Must not be created without explicit user confirmation.", parameters: { type: "OBJECT", properties: { listId: { type: "STRING", description: "Verified Google Tasks list ID" }, title: { type: "STRING" }, notes: { type: "STRING" } }, required: ["listId", "title"] } },
+          { name: "google_tasks_complete", description: "Prepare a request to mark a Google Task complete. Must not be changed without explicit user confirmation.", parameters: { type: "OBJECT", properties: { listId: { type: "STRING" }, taskId: { type: "STRING" } }, required: ["listId", "taskId"] } }
         ]
       }];
       const toolsConfig = [...(withSearch ? [{ googleSearch: {} }] : []), ...connectedAppFunctions];
@@ -3731,7 +3738,7 @@ app.post("/api/chat/stream", async (req, res) => {
         const candidate = (chunk as any).candidates?.[0];
         for (const part of candidate?.content?.parts || []) {
           const call = part?.functionCall;
-          if (call && ["gmail_search", "drive_search", "calendar_events", "youtube_search"].includes(call.name)) {
+          if (call && ["gmail_search", "drive_search", "calendar_events", "youtube_search", "gmail_send", "calendar_create", "google_tasks_create", "google_tasks_complete"].includes(call.name)) {
             requestedCalls.push({ name: call.name, args: call.args && typeof call.args === "object" ? call.args : {} });
           }
         }
