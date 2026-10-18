@@ -1642,7 +1642,7 @@ app.post("/api/apps/actions/execute", async (req, res) => {
         "Content-Type: text/plain; charset=UTF-8",
         "Content-Transfer-Encoding: base64",
         "",
-        Buffer.from(action.body, "utf8").toString("base64").replace(/.{1,76}/g, "const CALENDAR_READ_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";\r\n")
+        Buffer.from(action.body, "utf8").toString("base64").replace(/.{1,76}/g, "Buffer.from(action.body, "utf8").toString("base64").replace(/.{1,76}/g, "const CALENDAR_READ_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";\r\n")\r\n")
       ].join("\r\n");
       const raw = Buffer.from(mime, "utf8").toString("base64url");
       const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
