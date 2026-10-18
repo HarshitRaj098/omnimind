@@ -1328,7 +1328,8 @@ app.post("/api/scheduled-tasks/:id/run", async (req, res) => {
         error: message.slice(0, 1500)
       });
       if (current.nextRunAt <= failedAt) {
-        advanceScheduledTaskNextRun(current, failedAt);
+        if (current.frequency === "once") current.enabled = false;
+        else advanceScheduledTaskNextRun(current, failedAt);
       }
       saveScheduledTasks(latest);
     }
