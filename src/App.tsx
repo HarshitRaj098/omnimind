@@ -573,9 +573,15 @@ export default function App() {
   };
 
   const toggleSkillActivation = (id: string) => {
-    setActiveSkillIds(prev => 
+    setActiveSkillIds(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     );
+  };
+
+  const handleTestSkill = (id: string, prompt: string) => {
+    setActiveSkillIds(prev => prev.includes(id) ? prev : [...prev, id]);
+    setInput(prompt);
+    setIsSkillsModalOpen(false);
   };
 
   return (
@@ -657,6 +663,7 @@ export default function App() {
         onClose={() => setIsSkillsModalOpen(false)}
         activeSkillIds={activeSkillIds}
         onToggleSkillActivation={toggleSkillActivation}
+        onTestSkill={handleTestSkill}
       />
 
       {/* Share Modal */}
