@@ -1249,7 +1249,7 @@ app.post("/api/workspace/import", (req, res) => {
           .filter(message => message && ["user", "assistant"].includes(message.author?.role))
           .map(message => {
             const parts = Array.isArray(message.content?.parts) ? message.content.parts : [];
-            const content = parts.map((part: any) => typeof part === "string" ? part : typeof part?.text === "string" ? part.text : "").filter(Boolean).join("\\n");
+            const content = parts.map((part: any) => typeof part === "string" ? part : typeof part?.text === "string" ? part.text : "").filter(Boolean).join("\n");
             return {
               role: message.author.role === "assistant" ? "model" : "user",
               content,
@@ -3743,19 +3743,19 @@ app.post("/api/chat/stream", async (req, res) => {
           const sources: GroundingSource[] = [];
           for (const gc of gm.groundingChunks || []) {
             if (gc.web?.uri) {
-              try { const u = new URL(gc.web.uri); sources.push({ title: gc.web.title || u.hostname, url: gc.web.uri, domain: u.hostname.replace(/^www\\./, "") }); }
+              try { const u = new URL(gc.web.uri); sources.push({ title: gc.web.title || u.hostname, url: gc.web.uri, domain: u.hostname.replace(/^www\./, "") }); }
               catch { sources.push({ title: gc.web.title || gc.web.uri, url: gc.web.uri, domain: "source" }); }
             }
           }
           if (queries.length > 0 || sources.length > 0) capturedGrounding = { queries, sources };
         }
-        if (chunkText && !isAborted) res.write("data: " + JSON.stringify({ text: chunkText, done: false }) + "\\n\\n");
+        if (chunkText && !isAborted) res.write("data: " + JSON.stringify({ text: chunkText, done: false }) + "\n\n");
       }
       if (isAborted || requestedCalls.length === 0) continue;
       if (toolRounds >= 2) {
-        const limitText = "\\n\\n(I stopped additional connected-app tool calls to keep this request bounded.)";
+        const limitText = "\n\n(I stopped additional connected-app tool calls to keep this request bounded.)";
         fullModelResponse += limitText;
-        res.write("data: " + JSON.stringify({ text: limitText, done: false }) + "\\n\\n");
+        res.write("data: " + JSON.stringify({ text: limitText, done: false }) + "\n\n");
         pendingStreams.length = 0;
         continue;
       }
