@@ -383,7 +383,14 @@ function saveGoogleOAuthTokens(tokens: GoogleOAuthTokens) {
 function loadApps(): ConnectedApp[] {
   let apps: ConnectedApp[] = DEFAULT_APPS;
   try {
-    if (fs.existsSync(APPS_FILE)) apps = JSON.parse(fs.readFileSync(APPS_FILE, "utf-8"));
+    if (fs.existsSync(APPS_FILE)) {
+      const storedApps = JSON.parse(fs.readFileSync(APPS_FILE, "utf-8")) as ConnectedApp[];
+      apps = DEFAULT_APPS.map(defaultApp => ({
+        ...defaultApp,
+        ...(storedApps.find(stored => stored.id === defaultApp.id) || {}),
+        scopes: defaultApp.scopes
+      }));
+    }
   } catch (error) {
     console.error("Error loading connected apps:", error);
   }
