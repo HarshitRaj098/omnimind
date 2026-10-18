@@ -1458,7 +1458,7 @@ app.get("/api/apps/github/connect", (_req, res) => {
   const authorizeUrl = new URL("https://github.com/login/oauth/authorize");
   authorizeUrl.searchParams.set("client_id", config.clientId!);
   authorizeUrl.searchParams.set("redirect_uri", config.redirectUri);
-  authorizeUrl.searchParams.set("scope", "read:user");
+  authorizeUrl.searchParams.set("scope", "read:user public_repo");
   authorizeUrl.searchParams.set("state", state);
   return res.redirect(authorizeUrl.toString());
 });
@@ -1499,7 +1499,7 @@ app.get("/api/apps/github/callback", async (req, res) => {
     const profile = await profileResponse.json() as { login?: string };
     if (!profileResponse.ok || !profile.login) throw new Error("GitHub profile could not be verified.");
     const scopes = (tokenData.scope || "read:user").replace(/,/g, " ").split(/\s+/).filter(Boolean);
-    if (!scopes.includes("read:user")) throw new Error("GitHub did not grant the requested profile permission.");
+    if (!scopes.includes("read:user") || !scopes.includes("public_repo")) throw new Error("GitHub did not grant the requested profile and public repository permissions.");
     saveGitHubOAuthTokens({ access_token: tokenData.access_token, scopes, login: profile.login, connectedAt: Date.now() });
     return res.redirect("/?connected_apps=github_success");
   } catch (error) {
@@ -1555,6 +1555,99 @@ app.get("/api/apps/github/repos", async (_req, res) => {
     console.error("GitHub repository request failed:", error);
     if (error instanceof Error && error.name === "TimeoutError") return res.status(504).json({ error: "GitHub took too long to respond. Try again." });
     return res.status(502).json({ error: "GitHub repository request failed. Check the connection and try again." });
+  }
+});
+
+
+// GitHub issue actions use a server-issued, five-minute, single-use confirmation.
+type PendingGitHubIssue = { repository: string; title: string; body: string; expiresAt: number };
+const pendingGitHubIssues = new Map<string, PendingGitHubIssue>();
+
+function prunePendingGitHubIssues() {
+  const now = Date.now();
+  for (const [id, pending] of pendingGitHubIssues) {
+    if (pending.expiresAt <= now) pendingGitHubIssues.delete(id);
+  }
+}
+
+app.post("/api/apps/github/issues/prepare", async (req, res) => {
+  prunePendingGitHubIssues();
+  const tokens = loadGitHubOAuthTokens();
+  if (!tokens || !tokens.scopes.includes("read:user")) return res.status(401).json({ error: "Connect your GitHub account first." });
+  if (!tokens.scopes.includes("public_repo")) return res.status(403).json({ error: "GitHub issue creation permission is missing. Reconnect GitHub and approve public repository access. No issue was created." });
+
+  const repository = typeof req.body?.repository === "string" ? req.body.repository.trim() : "";
+  const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+  const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
+  const match = /^([A-Za-z0-9-]+)\/([A-Za-z0-9_.-]+)$/.exec(repository);
+  if (!match || match[1].toLowerCase() !== tokens.login.toLowerCase()) return res.status(400).json({ error: "Choose a public repository owned by the connected GitHub account." });
+  if (!title || title.length > 256 || /[\r\n]/.test(title)) return res.status(400).json({ error: "Issue title is required and must be 256 characters or fewer on one line." });
+  if (body.length > 20_000) return res.status(400).json({ error: "Issue description must be 20,000 characters or fewer." });
+
+  try {
+    const headers = {
+      Authorization: "Bearer " + tokens.access_token,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "OmniMind"
+    };
+    const response = await fetch("https://api.github.com/repos/" + match[1] + "/" + match[2], {
+      headers,
+      signal: AbortSignal.timeout(8_000)
+    });
+    const repoData = await response.json() as { private?: boolean; owner?: { login?: string }; full_name?: string; message?: string };
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) return res.status(response.status).json({ error: "GitHub denied repository access. Reconnect GitHub and verify public repository permissions." });
+      return res.status(404).json({ error: "Repository could not be verified. Use a public repository owned by your connected account." });
+    }
+    if (repoData.private || repoData.owner?.login?.toLowerCase() !== tokens.login.toLowerCase()) {
+      return res.status(403).json({ error: "For safety, OmniMind can create issues only in public repositories owned by your connected account." });
+    }
+    const actionId = randomBytes(24).toString("hex");
+    const verifiedRepository = repoData.full_name || repository;
+    pendingGitHubIssues.set(actionId, { repository: verifiedRepository, title, body, expiresAt: Date.now() + 5 * 60 * 1000 });
+    return res.json({ actionId, expiresInSeconds: 300, preview: { repository: verifiedRepository, title, body } });
+  } catch (error) {
+    console.error("GitHub issue preparation failed:", error);
+    if (error instanceof Error && error.name === "TimeoutError") return res.status(504).json({ error: "GitHub took too long to verify the repository. No issue was created." });
+    return res.status(502).json({ error: "GitHub could not verify the repository. No issue was created." });
+  }
+});
+
+app.post("/api/apps/github/issues/execute", async (req, res) => {
+  prunePendingGitHubIssues();
+  const tokens = loadGitHubOAuthTokens();
+  if (!tokens || !tokens.scopes.includes("public_repo")) return res.status(401).json({ error: "Reconnect GitHub and grant public repository permission." });
+  const actionId = typeof req.body?.actionId === "string" ? req.body.actionId : "";
+  if (req.body?.confirm !== true) return res.status(400).json({ error: "Explicit confirmation is required. No issue was created." });
+  const pending = pendingGitHubIssues.get(actionId);
+  if (!pending) return res.status(410).json({ error: "Issue confirmation expired or was already used. Prepare the issue again." });
+  pendingGitHubIssues.delete(actionId);
+
+  const [owner, repo] = pending.repository.split("/");
+  try {
+    const response = await fetch("https://api.github.com/repos/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo) + "/issues", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + tokens.access_token,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "OmniMind",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ title: pending.title, body: pending.body }),
+      signal: AbortSignal.timeout(12_000)
+    });
+    const data = await response.json() as { number?: number; html_url?: string; title?: string; message?: string };
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) return res.status(response.status).json({ error: data.message || "GitHub denied issue creation. Check the granted repository permission." });
+      return res.status(502).json({ error: data.message || "GitHub could not create the issue." });
+    }
+    return res.status(201).json({ success: true, number: data.number, url: data.html_url, title: data.title, repository: pending.repository });
+  } catch (error) {
+    console.error("GitHub issue creation failed:", error);
+    if (error instanceof Error && error.name === "TimeoutError") return res.status(504).json({ error: "GitHub took too long to respond. The issue result may be unknown; check the repository before retrying." });
+    return res.status(502).json({ error: "GitHub issue creation failed. Check the connection and try again." });
   }
 });
 
