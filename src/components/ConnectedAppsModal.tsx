@@ -30,6 +30,10 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
   const [githubLogin, setGithubLogin] = useState<string | null>(null);
   const [githubRepos, setGithubRepos] = useState<Array<{ id: number; fullName: string; description?: string | null; url: string; language?: string | null; stars: number; updatedAt: string }>>([]);
   const [githubLoading, setGithubLoading] = useState(false);
+  const [githubIssueRepository, setGithubIssueRepository] = useState("");
+  const [githubIssueTitle, setGithubIssueTitle] = useState("");
+  const [githubIssueBody, setGithubIssueBody] = useState("");
+  const [githubIssueLoading, setGithubIssueLoading] = useState(false);
   const [workspaceQuery, setWorkspaceQuery] = useState("");
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -87,12 +91,43 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       const response = await fetch("/api/apps/github/repos", { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not load GitHub repositories.");
-      setGithubRepos(Array.isArray(data.repositories) ? data.repositories : []);
+      const repositories = Array.isArray(data.repositories) ? data.repositories : [];
+      setGithubRepos(repositories);
+      if (!githubIssueRepository && repositories.length > 0) setGithubIssueRepository(repositories[0].fullName);
       setGithubLogin(data.login || githubLogin);
     } catch (error) {
       setTestResult(error instanceof Error ? error.message : "Could not load GitHub repositories.");
     } finally {
       setGithubLoading(false);
+    }
+  };
+
+  const createGitHubIssue = async () => {
+    const repository = githubIssueRepository.trim();
+    const title = githubIssueTitle.trim();
+    const body = githubIssueBody.trim();
+    if (!repository || !title) {
+      setTestResult("Choose a repository and enter an issue title.");
+      return;
+    }
+    if (!window.confirm(`Create a real GitHub issue in ${repository}?\n\n${title}\n\n${body || "(No description)"}`)) return;
+    setGithubIssueLoading(true);
+    setTestResult(null);
+    try {
+      const response = await fetch("/api/apps/github/issues", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repository, title, body })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not create GitHub issue.");
+      setGithubIssueTitle("");
+      setGithubIssueBody("");
+      setTestResult(`Created issue #${data.number} in ${data.repository || repository}: ${data.url}`);
+    } catch (error) {
+      setTestResult(error instanceof Error ? error.message : "Could not create GitHub issue.");
+    } finally {
+      setGithubIssueLoading(false);
     }
   };
 
@@ -357,13 +392,14 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
             <div>
               <h3 className="text-xs font-semibold text-[var(--claude-text)]">GitHub account</h3>
               <p className="mt-1 text-[11px] text-[var(--claude-text-muted)]">
-                {githubLogin ? `Connected as @${githubLogin}. Profile access only; repository browsing is limited to public repositories.` : githubOAuthConfigured ? "Authorize your GitHub profile to connect your account." : "Configure GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, and APP_URL on the server first."}
+                {githubLogin ? `Connected as @${githubLogin}. Repository actions are limited to public repositories you own; reconnect if issue creation permission is missing.` : githubOAuthConfigured ? "Authorize your GitHub profile to connect your account." : "Configure GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, and APP_URL on the server first."}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
               {githubLogin ? (
                 <>
                   <Button size="sm" variant="secondary" disabled={githubLoading} onClick={() => void loadGitHubRepos()}>{githubLoading ? "Loading…" : "Load public repositories"}</Button>
+                  <Button size="sm" variant="secondary" disabled={loading} onClick={connectGitHub}>Reconnect permissions</Button>
                   <Button size="sm" variant="danger" disabled={loading} onClick={disconnectGitHub}>Disconnect GitHub</Button>
                 </>
               ) : (
@@ -386,6 +422,20 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+          {githubLogin && githubRepos.length > 0 && (
+            <div className="rounded-lg border border-[var(--claude-border-subtle)] p-3 space-y-3">
+              <div>
+                <h4 className="text-xs font-semibold text-[var(--claude-text)]">Create GitHub issue</h4>
+                <p className="mt-1 text-[10px] text-[var(--claude-text-muted)]">Public repositories you own only. OmniMind shows the exact issue and asks for confirmation before posting.</p>
+              </div>
+              <select value={githubIssueRepository} onChange={event => setGithubIssueRepository(event.target.value)} aria-label="GitHub repository for new issue" className="w-full rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]">
+                {githubRepos.map(repo => <option key={repo.id} value={repo.fullName}>{repo.fullName}</option>)}
+              </select>
+              <input value={githubIssueTitle} onChange={event => setGithubIssueTitle(event.target.value)} maxLength={256} placeholder="Issue title" aria-label="GitHub issue title" className="w-full rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" />
+              <textarea value={githubIssueBody} onChange={event => setGithubIssueBody(event.target.value)} maxLength={20000} rows={3} placeholder="Description, reproduction steps, expected result…" aria-label="GitHub issue description" className="w-full resize-y rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)]" />
+              <Button size="sm" variant="primary" disabled={githubIssueLoading || !githubIssueTitle.trim()} onClick={() => void createGitHubIssue()}>{githubIssueLoading ? "Creating issue…" : "Review & create issue"}</Button>
             </div>
           )}
         </div>
