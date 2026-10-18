@@ -31,6 +31,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [gmailMessages, setGmailMessages] = useState<Array<{ id: string; subject: string; from: string; date: string; snippet: string }>>([]);
   const [driveFiles, setDriveFiles] = useState<Array<{ id: string; name: string; mimeType?: string; modifiedTime?: string; webViewLink?: string }>>([]);
+  const [calendarEvents, setCalendarEvents] = useState<Array<{ id: string; summary: string; start: string; end: string; htmlLink: string; location: string }>>([]);
 
   useEffect(() => {
     if (isOpen) {
@@ -84,6 +85,26 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       if (!Array.isArray(data.files) || data.files.length === 0) setWorkspaceError("No matching Drive files found.");
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : "Could not search Google Drive.");
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  };
+
+  const loadCalendar = async () => {
+    setWorkspaceLoading(true);
+    setWorkspaceError(null);
+    setGmailMessages([]);
+    setDriveFiles([]);
+    try {
+      const response = await fetch("/api/apps/calendar/events?days=7", { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not load Google Calendar events.");
+      setCalendarEvents(Array.isArray(data.events) ? data.events : []);
+      if (!Array.isArray(data.events) || data.events.length === 0) {
+        setWorkspaceError("No upcoming Calendar events were found in the next seven days.");
+      }
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : "Could not load Google Calendar events.");
     } finally {
       setWorkspaceLoading(false);
     }
@@ -190,6 +211,9 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
             <Button size="sm" variant="secondary" disabled={workspaceLoading || !googleAccountEmail} onClick={() => void loadInbox()}>
               {workspaceLoading ? "Loading…" : "Read recent inbox"}
             </Button>
+            <Button size="sm" variant="secondary" disabled={workspaceLoading || !googleAccountEmail} onClick={() => void loadCalendar()}>
+              {workspaceLoading ? "Loading…" : "Upcoming Calendar"}
+            </Button>
             <input
               value={workspaceQuery}
               onChange={(event) => setWorkspaceQuery(event.target.value)}
@@ -211,6 +235,22 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
                   <p className="text-xs font-medium text-[var(--claude-text)]">{message.subject}</p>
                   <p className="mt-1 text-[10px] text-[var(--claude-text-muted)]">{message.from}{message.date ? ` · ${message.date}` : ""}</p>
                   <p className="mt-1 text-xs text-[var(--claude-text-secondary)]">{message.snippet}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {calendarEvents.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[10px] uppercase tracking-wider text-[var(--claude-text-muted)]">Upcoming Calendar events · next 7 days</p>
+              {calendarEvents.map(event => (
+                <div key={event.id} className="rounded-lg border border-[var(--claude-border-subtle)] p-3">
+                  <p className="text-xs font-medium text-[var(--claude-text)]">{event.summary}</p>
+                  <p className="mt-1 text-[10px] text-[var(--claude-text-muted)]">
+                    {event.start ? new Date(event.start).toLocaleString() : "Date not available"}
+                    {event.end ? ` · until ${new Date(event.end).toLocaleString()}` : ""}
+                  </p>
+                  {event.location && <p className="mt-1 text-xs text-[var(--claude-text-secondary)]">{event.location}</p>}
+                  {event.htmlLink && <a className="mt-2 inline-block text-xs underline text-[var(--claude-text-secondary)]" href={event.htmlLink} target="_blank" rel="noreferrer">Open in Google Calendar</a>}
                 </div>
               ))}
             </div>
