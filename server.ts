@@ -1171,7 +1171,9 @@ app.post("/api/memories/import", (req, res) => {
 // Persistent scheduled tasks. Read-only connected-app requests are evaluated at their scheduled time.
 app.get("/api/scheduled-tasks", (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  res.json(loadScheduledTasks().sort((a, b) => a.nextRunAt - b.nextRunAt));
+  res.json(loadScheduledTasks()
+    .map(task => ({ ...task, running: scheduledTaskInFlight.has(task.id) }))
+    .sort((a, b) => a.nextRunAt - b.nextRunAt));
 });
 
 app.post("/api/scheduled-tasks", (req, res) => {
@@ -1194,16 +1196,65 @@ app.patch("/api/scheduled-tasks/:id", (req, res) => {
   const tasks = loadScheduledTasks();
   const task = tasks.find(item => item.id === req.params.id);
   if (!task) return res.status(404).json({ error: "Scheduled task not found." });
+  if (scheduledTaskInFlight.has(task.id)) return res.status(409).json({ error: "This task is running; try again when it finishes." });
   if (typeof req.body?.enabled === "boolean") task.enabled = req.body.enabled;
   saveScheduledTasks(tasks);
   return res.json(task);
 });
 
+app.post("/api/scheduled-tasks/:id/run", async (req, res) => {
+  const tasks = loadScheduledTasks();
+  const task = tasks.find(item => item.id === req.params.id);
+  if (!task) return res.status(404).json({ error: "Scheduled task not found." });
+  if (scheduledTaskInFlight.has(task.id)) return res.status(409).json({ error: "This task is already running." });
+
+  scheduledTaskInFlight.add(task.id);
+  const startedAt = Date.now();
+  try {
+    const result = await executeScheduledTask(task);
+    const latest = loadScheduledTasks();
+    const current = latest.find(item => item.id === task.id);
+    if (!current) return res.status(404).json({ error: "Scheduled task was deleted while it was running." });
+    const finishedAt = Date.now();
+    current.lastRunAt = finishedAt;
+    current.lastResult = result;
+    current.lastError = undefined;
+    current.runCount += 1;
+    if (current.frequency === "once") {
+      current.enabled = false;
+    } else if (current.nextRunAt <= finishedAt) {
+      const step = current.frequency === "daily" ? 86400000 : 604800000;
+      do { current.nextRunAt += step; } while (current.nextRunAt <= finishedAt);
+    }
+    saveScheduledTasks(latest);
+    return res.json({ task: { ...current, running: false }, startedAt, finishedAt });
+  } catch (error) {
+    const latest = loadScheduledTasks();
+    const current = latest.find(item => item.id === task.id);
+    const message = error instanceof Error ? error.message.slice(0, 1000) : "Scheduled task failed.";
+    if (current) {
+      const failedAt = Date.now();
+      current.lastRunAt = failedAt;
+      current.lastError = message;
+      current.runCount += 1;
+      if (current.nextRunAt <= failedAt) {
+        const retryDelay = current.frequency === "weekly" ? 604800000 : 86400000;
+        current.nextRunAt = failedAt + retryDelay;
+      }
+      saveScheduledTasks(latest);
+    }
+    return res.status(502).json({ error: message, task: current ? { ...current, running: false } : undefined });
+  } finally {
+    scheduledTaskInFlight.delete(task.id);
+  }
+});
+
 app.delete("/api/scheduled-tasks/:id", (req, res) => {
   const tasks = loadScheduledTasks();
-  const remaining = tasks.filter(task => task.id !== req.params.id);
-  if (remaining.length === tasks.length) return res.status(404).json({ error: "Scheduled task not found." });
-  saveScheduledTasks(remaining);
+  const task = tasks.find(item => item.id === req.params.id);
+  if (!task) return res.status(404).json({ error: "Scheduled task not found." });
+  if (scheduledTaskInFlight.has(task.id)) return res.status(409).json({ error: "This task is running; try again when it finishes." });
+  saveScheduledTasks(tasks.filter(item => item.id !== req.params.id));
   return res.json({ success: true });
 });
 
