@@ -187,8 +187,8 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
             <p className="mt-1 text-[11px] text-[var(--claude-text-muted)]">Read your inbox or search Drive using the account you authorized above. These actions are read-only.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="secondary" disabled={loading || !googleAccountEmail} onClick={() => void loadInbox()}>
-              Read recent inbox
+            <Button size="sm" variant="secondary" disabled={workspaceLoading || !googleAccountEmail} onClick={() => void loadInbox()}>
+              {workspaceLoading ? "Loading…" : "Read recent inbox"}
             </Button>
             <input
               value={workspaceQuery}
@@ -198,8 +198,8 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
               aria-label="Search Google Drive file names"
               className="min-w-0 flex-1 rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] px-3 py-2 text-xs text-[var(--claude-text)] outline-none focus:border-[var(--claude-text-muted)]"
             />
-            <Button size="sm" variant="secondary" disabled={loading || !googleAccountEmail || !workspaceQuery.trim()} onClick={() => void searchDrive()}>
-              Search Drive
+            <Button size="sm" variant="secondary" disabled={workspaceLoading || !googleAccountEmail || !workspaceQuery.trim()} onClick={() => void searchDrive()}>
+              {workspaceLoading ? "Searching…" : "Search Drive"}
             </Button>
           </div>
           {workspaceError && <p role="alert" className="text-xs text-red-400">{workspaceError}</p>}
