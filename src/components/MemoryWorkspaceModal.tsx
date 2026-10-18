@@ -105,7 +105,7 @@ export const MemoryWorkspaceModal: React.FC<MemoryWorkspaceModalProps> = ({
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (!confirm("Merge this OmniMind backup into your workspace? Existing records stay intact. Imported skills and scheduled tasks remain disabled.")) return;
+    if (!confirm("Import and merge this JSON into OmniMind? Existing records stay intact. ChatGPT conversations.json is supported; for a ChatGPT ZIP export, extract conversations.json first. Imported skills and scheduled tasks remain disabled.")) return;
     try {
       const backup = JSON.parse(await file.text());
       const response = await fetch("/api/workspace/import", {
@@ -314,7 +314,7 @@ export const MemoryWorkspaceModal: React.FC<MemoryWorkspaceModalProps> = ({
               <input type="file" accept=".json,.txt,.md" className="hidden" onChange={handleImportMemoryFile} />
             </label>
             <label className="inline-flex cursor-pointer items-center rounded-xl border border-[var(--claude-border)] px-3 py-2 text-xs hover:bg-[var(--claude-surface)]">
-              Import workspace backup
+              Import ChatGPT / workspace JSON
               <input type="file" accept=".json,application/json" className="hidden" onChange={handleImportWorkspaceBackup} />
             </label>
             <Button
