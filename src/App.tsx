@@ -245,7 +245,7 @@ export default function App() {
     try {
       const res = await fetch(`/api/conversations/${encodeURIComponent(id)}`, { method: "DELETE" });
       const result = await res.json().catch(() => ({}));
-      if (!res.ok || result?.success !== true || result?.deletedId !== id) {
+      if (!res.ok || result?.success !== true || (result?.deletedId != null && result.deletedId !== id)) {
         throw new Error(result?.error || "Conversation deletion was not confirmed");
       }
 
