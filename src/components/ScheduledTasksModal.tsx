@@ -27,6 +27,8 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
   const [runAt, setRunAt] = useState(() => toLocalInput(new Date(Date.now() + 60 * 60 * 1000)));
   const [loading, setLoading] = useState(false);
   const [runningTaskIds, setRunningTaskIds] = useState<Set<string>>(() => new Set());
+  const [editingTask, setEditingTask] = useState<{ id: string; title: string; prompt: string; frequency: Frequency; runAt: string } | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
@@ -104,6 +106,45 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
     }
   };
 
+  const beginEditTask = (task: ScheduledTask) => {
+    setError(null);
+    setEditingTask({
+      id: task.id,
+      title: task.title,
+      prompt: task.prompt,
+      frequency: task.frequency,
+      runAt: toLocalInput(new Date(task.nextRunAt)),
+    });
+  };
+
+  const saveTaskEdit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editingTask) return;
+    setSavingEdit(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/scheduled-tasks/${encodeURIComponent(editingTask.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: editingTask.title,
+          prompt: editingTask.prompt,
+          frequency: editingTask.frequency,
+          nextRunAt: new Date(editingTask.runAt).getTime(),
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not save task changes.");
+      setTasks(prev => prev.map(item => item.id === data.id ? data : item).sort((a, b) => a.nextRunAt - b.nextRunAt));
+      setEditingTask(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save task changes.");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const deleteTask = async (task: ScheduledTask) => {
     setError(null);
     try {
@@ -111,6 +152,7 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not delete task.");
       setTasks(prev => prev.filter(item => item.id !== task.id));
+      if (editingTask?.id === task.id) setEditingTask(null);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not delete task."); }
   };
 
@@ -167,6 +209,22 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
               </div>
               {task.lastError && <p className="text-xs text-rose-500">{task.lastError}</p>}
               {task.lastResult && <pre className="max-h-36 overflow-auto whitespace-pre-wrap rounded-lg bg-[var(--claude-bg)] p-2 text-xs">{task.lastResult}</pre>}
+              {editingTask?.id === task.id && <form onSubmit={saveTaskEdit} className="space-y-3 rounded-lg border border-[var(--claude-border)] bg-[var(--claude-bg)] p-3">
+                <Input value={editingTask.title} onChange={e => setEditingTask(current => current ? { ...current, title: e.target.value } : current)} placeholder="Task name" />
+                <Textarea rows={3} value={editingTask.prompt} onChange={e => setEditingTask(current => current ? { ...current, prompt: e.target.value } : current)} placeholder="Task instructions" />
+                <div className="flex flex-wrap gap-2">
+                  <select value={editingTask.frequency} onChange={e => setEditingTask(current => current ? { ...current, frequency: e.target.value as Frequency } : current)}
+                    className="rounded-xl border border-[var(--claude-border)] bg-[var(--claude-surface)] px-3 py-2 text-sm">
+                    <option value="once">Once</option><option value="daily">Every day</option><option value="weekly">Every week</option>
+                  </select>
+                  <label className="text-xs text-[var(--claude-text-muted)]">Next run <input type="datetime-local" value={editingTask.runAt} onChange={e => setEditingTask(current => current ? { ...current, runAt: e.target.value } : current)} required className="ml-2 rounded-lg border border-[var(--claude-border)] bg-[var(--claude-surface)] p-2 text-[var(--claude-text)]" /></label>
+                </div>
+                <p className="text-xs text-[var(--claude-text-muted)]">Time zone will use this browser's current zone: {Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"}.</p>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="quiet" onClick={() => setEditingTask(null)} disabled={savingEdit}>Cancel</Button>
+                  <Button type="submit" variant="primary" disabled={savingEdit || !editingTask.title.trim() || !editingTask.prompt.trim() || !editingTask.runAt}>{savingEdit ? "Saving…" : "Save changes"}</Button>
+                </div>
+              </form>}
               {task.runs?.length ? <div className="border-t border-[var(--claude-border)] pt-2">
                 <div className="mb-2 text-xs font-medium text-[var(--claude-text-muted)]">Recent runs · {task.runCount} total</div>
                 <div className="space-y-2">{task.runs.slice(0, 3).map(run => <div key={run.id} className="flex items-start gap-2 text-xs">
@@ -177,7 +235,7 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
                   </div>
                 </div>)}</div>
               </div> : <p className="text-xs text-[var(--claude-text-muted)]">No execution history yet · {task.runCount} runs</p>}
-              <div className="flex flex-wrap justify-end gap-2"><Button size="sm" variant="secondary" onClick={() => void runTaskNow(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{runningTaskIds.has(task.id) || task.running ? "Running…" : "Run now"}</Button><Button size="sm" variant="quiet" onClick={() => void toggleTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{task.enabled ? "Pause" : "Resume"}</Button><Button size="sm" variant="quiet" onClick={() => void deleteTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>Delete</Button></div>
+              <div className="flex flex-wrap justify-end gap-2"><Button size="sm" variant="secondary" onClick={() => void runTaskNow(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{runningTaskIds.has(task.id) || task.running ? "Running…" : "Run now"}</Button><Button size="sm" variant="quiet" onClick={() => beginEditTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{editingTask?.id === task.id ? "Editing…" : "Edit"}</Button><Button size="sm" variant="quiet" onClick={() => void toggleTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{task.enabled ? "Pause" : "Resume"}</Button><Button size="sm" variant="quiet" onClick={() => void deleteTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>Delete</Button></div>
             </article>
           ))}
         </div>
