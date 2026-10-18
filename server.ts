@@ -1287,10 +1287,12 @@ const GOOGLE_OAUTH_SCOPES = [
   "openid",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/drive.readonly",
   "https://www.googleapis.com/auth/documents.readonly",
   "https://www.googleapis.com/auth/spreadsheets.readonly",
   "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/tasks.readonly",
   "https://www.googleapis.com/auth/youtube.readonly"
 ];
@@ -1557,6 +1559,135 @@ app.get("/api/apps/github/repos", async (_req, res) => {
 const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 const CALENDAR_READ_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+
+const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+const CALENDAR_WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+type PendingConnectedAction =
+  | { kind: "gmail_send"; to: string; subject: string; body: string }
+  | { kind: "calendar_create"; summary: string; start: string; end: string; description: string; location: string };
+const pendingConnectedActions = new Map<string, { action: PendingConnectedAction; expiresAt: number }>();
+
+function prunePendingConnectedActions() {
+  const now = Date.now();
+  for (const [id, pending] of pendingConnectedActions) {
+    if (pending.expiresAt <= now) pendingConnectedActions.delete(id);
+  }
+}
+
+// Prepare a write action for a visible, time-limited confirmation. Nothing is sent or created here.
+app.post("/api/apps/actions/prepare", (req, res) => {
+  prunePendingConnectedActions();
+  const input = req.body || {};
+  let action: PendingConnectedAction;
+  if (input.kind === "gmail_send") {
+    const to = typeof input.to === "string" ? input.to.trim() : "";
+    const subject = typeof input.subject === "string" ? input.subject.trim() : "";
+    const body = typeof input.body === "string" ? input.body.trim() : "";
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailPattern.test(to) || !subject || !body) {
+      return res.status(400).json({ error: "Enter a valid recipient, subject, and message body." });
+    }
+    if (to.length > 254 || subject.length > 998 || body.length > 100_000) {
+      return res.status(413).json({ error: "Email exceeds the supported size limit." });
+    }
+    action = { kind: "gmail_send", to, subject, body };
+  } else if (input.kind === "calendar_create") {
+    const summary = typeof input.summary === "string" ? input.summary.trim() : "";
+    const start = typeof input.start === "string" ? input.start.trim() : "";
+    const end = typeof input.end === "string" ? input.end.trim() : "";
+    const description = typeof input.description === "string" ? input.description.trim() : "";
+    const location = typeof input.location === "string" ? input.location.trim() : "";
+    const startMs = Date.parse(start);
+    const endMs = Date.parse(end);
+    if (!summary || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+      return res.status(400).json({ error: "Enter an event title, valid start and end date-times, and ensure the end is after the start." });
+    }
+    if (summary.length > 500 || description.length > 8000 || location.length > 1000) {
+      return res.status(413).json({ error: "Calendar event fields exceed the supported size limit." });
+    }
+    action = { kind: "calendar_create", summary, start: new Date(startMs).toISOString(), end: new Date(endMs).toISOString(), description, location };
+  } else {
+    return res.status(400).json({ error: "Unsupported action. Use gmail_send or calendar_create." });
+  }
+
+  if (pendingConnectedActions.size >= 100) prunePendingConnectedActions();
+  if (pendingConnectedActions.size >= 100) {
+    return res.status(429).json({ error: "Too many pending confirmations. Wait a moment and try again." });
+  }
+  const actionId = randomBytes(24).toString("hex");
+  pendingConnectedActions.set(actionId, { action, expiresAt: Date.now() + 5 * 60 * 1000 });
+  const preview = action.kind === "gmail_send"
+    ? { kind: action.kind, to: action.to, subject: action.subject, body: action.body }
+    : { kind: action.kind, summary: action.summary, start: action.start, end: action.end, description: action.description, location: action.location };
+  return res.json({ actionId, expiresInSeconds: 300, requiresConfirmation: true, preview });
+});
+
+// Execute only after an explicit confirmation. Confirmation IDs are single-use and expire after five minutes.
+app.post("/api/apps/actions/execute", async (req, res) => {
+  prunePendingConnectedActions();
+  const actionId = typeof req.body?.actionId === "string" ? req.body.actionId : "";
+  if (req.body?.confirm !== true) return res.status(400).json({ error: "Explicit confirmation is required. No external action was performed.", executed: false });
+  const pending = pendingConnectedActions.get(actionId);
+  if (!pending) return res.status(410).json({ error: "Confirmation expired or was already used. Prepare the action again.", executed: false });
+  pendingConnectedActions.delete(actionId);
+
+  try {
+    if (pending.action.kind === "gmail_send") {
+      const accessToken = await getGoogleAccessToken(GMAIL_SEND_SCOPE);
+      const action = pending.action;
+      const mime = [
+        "To: " + action.to,
+        "Subject: " + action.subject.replace(/[\r\n]+/g, " "),
+        "MIME-Version: 1.0",
+        "Content-Type: text/plain; charset=UTF-8",
+        "Content-Transfer-Encoding: base64",
+        "",
+        Buffer.from(action.body, "utf8").toString("base64").replace(/.{1,76}/g, "const CALENDAR_READ_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";\r\n")
+      ].join("\r\n");
+      const raw = Buffer.from(mime, "utf8").toString("base64url");
+      const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" },
+        body: JSON.stringify({ raw }),
+        signal: AbortSignal.timeout(15_000)
+      });
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          return res.status(response.status).json({ error: "Gmail send permission is missing or expired. Reconnect Google and approve the Gmail send permission. No email was sent.", executed: false });
+        }
+        return res.status(502).json({ error: "Gmail rejected the message. No successful send was confirmed.", executed: false });
+      }
+      const data = await response.json() as { id?: string; threadId?: string };
+      return res.json({ success: true, executed: true, kind: "gmail_send", messageId: data.id || null, threadId: data.threadId || null, message: "Gmail accepted the message for sending." });
+    }
+
+    const accessToken = await getGoogleAccessToken(CALENDAR_WRITE_SCOPE);
+    const action = pending.action;
+    const response = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        summary: action.summary,
+        description: action.description || undefined,
+        location: action.location || undefined,
+        start: { dateTime: action.start },
+        end: { dateTime: action.end }
+      }),
+      signal: AbortSignal.timeout(15_000)
+    });
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        return res.status(response.status).json({ error: "Google Calendar event permission is missing or expired. Reconnect Google and approve Calendar event permission. No event was created.", executed: false });
+      }
+      return res.status(502).json({ error: "Google Calendar rejected the event. No successful creation was confirmed.", executed: false });
+    }
+    const data = await response.json() as { id?: string; htmlLink?: string; summary?: string; start?: { dateTime?: string } };
+    return res.json({ success: true, executed: true, kind: "calendar_create", eventId: data.id || null, url: data.htmlLink || null, summary: data.summary || action.summary, start: data.start?.dateTime || action.start, message: "Google Calendar created the event." });
+  } catch (error) {
+    return sendGoogleAppError(res, error);
+  }
+});
+
 
 // Read-only Gmail access. The query uses Gmail's native search syntax.
 app.get("/api/apps/gmail/messages", async (req, res) => {
