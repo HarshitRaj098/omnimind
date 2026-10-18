@@ -9,6 +9,7 @@ interface ConnectedApp {
   connected: boolean;
   scopes: string[];
   lastConnected?: number;
+  accountEmail?: string;
 }
 
 interface ConnectedAppsModalProps {
@@ -23,6 +24,8 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
   const [apps, setApps] = useState<ConnectedApp[]>([]);
   const [loading, setLoading] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [googleOAuthConfigured, setGoogleOAuthConfigured] = useState(false);
+  const [googleAccountEmail, setGoogleAccountEmail] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -32,13 +35,37 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
 
   const fetchApps = async () => {
     try {
-      const res = await fetch("/api/apps");
-      if (res.ok) {
-        const data = await res.json();
-        setApps(data);
+      const [appsResponse, statusResponse] = await Promise.all([fetch("/api/apps"), fetch("/api/apps/status")]);
+      if (appsResponse.ok) setApps(await appsResponse.json());
+      if (statusResponse.ok) {
+        const status = await statusResponse.json();
+        setGoogleOAuthConfigured(Boolean(status.googleOAuthConfigured));
+        setGoogleAccountEmail(status.googleAccountEmail || null);
       }
     } catch (e) {
       console.error("Failed to load connected apps", e);
+      setTestResult("Could not load connection status. Check the OmniMind server.");
+    }
+  };
+
+  const connectGoogle = () => window.location.assign("/api/apps/google/connect");
+
+  const disconnectGoogle = async () => {
+    setLoading(true);
+    setTestResult(null);
+    try {
+      const response = await fetch("/api/apps/google/disconnect", { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not disconnect Google.");
+      setGoogleAccountEmail(null);
+      setApps(prev => prev.map(app => app.category === "whatsapp"
+        ? app
+        : { ...app, connected: false, accountEmail: undefined, lastConnected: undefined }));
+      setTestResult("Google account disconnected from OmniMind.");
+    } catch (error) {
+      setTestResult(error instanceof Error ? error.message : "Could not disconnect Google.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -120,6 +147,19 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       }
     >
       <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-[var(--claude-border)] bg-[var(--claude-surface)] p-4">
+          <div>
+            <h3 className="text-xs font-semibold text-[var(--claude-text)]">Google account</h3>
+            <p className="mt-1 text-[11px] text-[var(--claude-text-muted)]">
+              {googleAccountEmail ? `Authorized as ${googleAccountEmail}` : googleOAuthConfigured ? "Authorize read-only access to supported Google services." : "Configure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and APP_URL on the server first."}
+            </p>
+          </div>
+          {googleAccountEmail ? (
+            <Button size="sm" variant="danger" disabled={loading} onClick={disconnectGoogle}>Disconnect Google</Button>
+          ) : (
+            <Button size="sm" variant="primary" disabled={!googleOAuthConfigured || loading} onClick={connectGoogle}>Connect Google</Button>
+          )}
+        </div>
         {testResult && (
           <div className="p-3 rounded-xl bg-[var(--claude-bg)] border border-[var(--claude-border)] text-xs font-mono text-[var(--claude-text-secondary)]">
             {testResult}
@@ -144,7 +184,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
                         {app.name}
                       </h3>
                       <p className="text-[10px] text-[var(--claude-text-muted)]">
-                        {isConnected ? "Authenticated" : "Authentication not configured"}
+                        {isConnected ? (app.accountEmail || "Google account authorized") : app.category === "whatsapp" ? "Meta Business API setup required" : googleOAuthConfigured ? "Connect your Google account above" : "Google OAuth setup required"}
                       </p>
                     </div>
                   </div>
@@ -157,26 +197,18 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
 
                 <div className="pt-2 border-t border-[var(--claude-border-subtle)] flex items-center justify-between gap-2">
                   <span className="text-[10px] text-[var(--claude-text-muted)]">
-                    {isConnected ? `${app.scopes.length} requested scopes` : "Setup required"}
+                    {isConnected ? `${app.scopes.length} authorized scopes` : app.category === "whatsapp" ? "Requires Meta credentials" : "Not authorized"}
                   </span>
 
                   <div className="flex items-center gap-2">
-                    {isConnected && (
-                      <Button
-                        size="sm"
-                        variant="quiet"
-                        onClick={() => testTool(app.id, app.name)}
-                      >
-                        Test
-                      </Button>
-                    )}
+
                     <Button
                       size="sm"
                       variant={isConnected ? "danger" : "secondary"}
                       disabled={loading || !isConnected}
-                      onClick={() => toggleApp(app.id, isConnected)}
+                      onClick={() => app.category === "whatsapp" ? toggleApp(app.id, isConnected) : disconnectGoogle()}
                     >
-                      {isConnected ? "Disconnect" : "Setup pending"}
+                      {isConnected ? "Disconnect account" : "Not connected"}
                     </Button>
                   </div>
                 </div>
