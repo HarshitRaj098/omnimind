@@ -2760,33 +2760,107 @@ app.post("/api/apps/:id/toggle", (req, res) => {
 
 // Tool Execution Endpoint for Connected Apps with Read/Write Distinction
 app.post("/api/tools/execute", async (req, res) => {
-  const { name } = req.body as { name?: string };
-  if (!name || typeof name !== "string") {
-    return res.status(400).json({ error: "A tool name is required." });
+  const name = typeof req.body?.name === "string" ? req.body.name : "";
+  const args = req.body?.args && typeof req.body.args === "object" && !Array.isArray(req.body.args) ? req.body.args as Record<string, unknown> : {};
+  const readOnlyTools = new Set(["gmail_read", "gmail_search", "drive_search", "calendar_events", "youtube_search"]);
+  if (!name) return res.status(400).json({ error: "A tool name is required.", executed: false });
+  if (name === "gmail_send" || name === "calendar_create") {
+    return res.status(403).json({
+      error: "This action changes external data and cannot run autonomously. Use the Connected Apps workspace to review the details and explicitly confirm the action.",
+      tool: name,
+      requiresConfirmation: true,
+      executed: false
+    });
   }
-
-  const implementedTools = new Set([
-    "gmail_read",
-    "gmail_search",
-    "gmail_send",
-    "drive_search",
-    "calendar_events",
-    "calendar_create",
-    "youtube_search",
-    "whatsapp_send"
-  ]);
-
-  if (!implementedTools.has(name)) {
-    return res.status(400).json({ error: `Unknown tool: ${name}` });
+  if (name === "whatsapp_send") {
+    return res.status(501).json({ error: "WhatsApp Cloud API credentials and a confirmation-enabled send flow are not configured. No message was sent.", tool: name, executed: false });
   }
+  if (!readOnlyTools.has(name)) return res.status(400).json({ error: `Unknown or unsupported connected-app tool: ${name}`, executed: false });
 
-  // Do not return fixture data or fake success for external actions. A real
-  // provider adapter and authenticated credentials must exist before execution.
-  return res.status(501).json({
-    error: `The ${name} integration is not implemented yet. No external action was performed.`,
-    tool: name,
-    executed: false
-  });
+  try {
+    if (name === "gmail_read" || name === "gmail_search") {
+      const rawQuery = typeof args.query === "string" ? args.query.trim().slice(0, 300) : "";
+      if (name === "gmail_search" && !rawQuery) return res.status(400).json({ error: "A Gmail search query is required.", executed: false });
+      const query = name === "gmail_read" ? (rawQuery || "in:inbox") : rawQuery;
+      const accessToken = await getGoogleAccessToken(GMAIL_READ_SCOPE);
+      const listUrl = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
+      listUrl.searchParams.set("maxResults", "10");
+      listUrl.searchParams.set("q", query);
+      const listResponse = await fetch(listUrl, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(12_000) });
+      const listData = await listResponse.json() as { messages?: Array<{ id: string }>; resultSizeEstimate?: number; error?: { message?: string } };
+      if (!listResponse.ok) return res.status(listResponse.status === 401 || listResponse.status === 403 ? listResponse.status : 502).json({ error: listData.error?.message || "Gmail could not return messages.", executed: false });
+      const messages = await Promise.all((listData.messages || []).slice(0, 10).map(async item => {
+        const detailUrl = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(item.id)}`);
+        detailUrl.searchParams.set("format", "metadata");
+        for (const header of ["Subject", "From", "Date"]) detailUrl.searchParams.append("metadataHeaders", header);
+        const detailResponse = await fetch(detailUrl, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(12_000) });
+        if (!detailResponse.ok) return null;
+        const detail = await detailResponse.json() as { id: string; snippet?: string; payload?: { headers?: Array<{ name: string; value: string }> } };
+        const headers = detail.payload?.headers || [];
+        const header = (key: string) => headers.find(value => value.name.toLowerCase() === key.toLowerCase())?.value || "";
+        return { id: detail.id, subject: header("Subject") || "(no subject)", from: header("From") || "Unknown sender", date: header("Date"), snippet: detail.snippet || "" };
+      }));
+      return res.json({ tool: name, executed: true, query, resultSizeEstimate: listData.resultSizeEstimate || 0, messages: messages.filter(Boolean) });
+    }
+
+    if (name === "drive_search") {
+      const query = typeof args.query === "string" ? args.query.trim().slice(0, 200) : "";
+      if (!query) return res.status(400).json({ error: "A Google Drive search query is required.", executed: false });
+      const accessToken = await getGoogleAccessToken(DRIVE_READ_SCOPE);
+      const escaped = query.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+      const url = new URL("https://www.googleapis.com/drive/v3/files");
+      url.searchParams.set("q", `name contains '${escaped}' and trashed = false`);
+      url.searchParams.set("pageSize", "10");
+      url.searchParams.set("orderBy", "modifiedTime desc");
+      url.searchParams.set("fields", "files(id,name,mimeType,modifiedTime,webViewLink)");
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(12_000) });
+      const data = await response.json() as { files?: Array<{ id: string; name: string; mimeType?: string; modifiedTime?: string; webViewLink?: string }>; error?: { message?: string } };
+      if (!response.ok) return res.status(response.status === 401 || response.status === 403 ? response.status : 502).json({ error: data.error?.message || "Google Drive search failed.", executed: false });
+      return res.json({ tool: name, executed: true, query, files: data.files || [] });
+    }
+
+    if (name === "calendar_events") {
+      const rawDays = typeof args.days === "number" ? args.days : Number(args.days ?? 7);
+      const days = Number.isFinite(rawDays) ? Math.min(30, Math.max(1, Math.floor(rawDays))) : 7;
+      const accessToken = await getGoogleAccessToken(CALENDAR_READ_SCOPE);
+      const url = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
+      url.searchParams.set("timeMin", new Date().toISOString());
+      url.searchParams.set("timeMax", new Date(Date.now() + days * 86400000).toISOString());
+      url.searchParams.set("maxResults", "20");
+      url.searchParams.set("singleEvents", "true");
+      url.searchParams.set("orderBy", "startTime");
+      url.searchParams.set("fields", "items(id,summary,start,end,htmlLink,location,status),timeZone");
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(12_000) });
+      const data = await response.json() as { timeZone?: string; items?: Array<{ id: string; summary?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string }; htmlLink?: string; location?: string; status?: string }>; error?: { message?: string } };
+      if (!response.ok) return res.status(response.status === 401 || response.status === 403 ? response.status : 502).json({ error: data.error?.message || "Google Calendar could not load events.", executed: false });
+      const events = (data.items || []).filter(event => event.status !== "cancelled").map(event => ({ id: event.id, summary: event.summary || "(untitled event)", start: event.start?.dateTime || event.start?.date || "", end: event.end?.dateTime || event.end?.date || "", htmlLink: event.htmlLink || "", location: event.location || "" }));
+      return res.json({ tool: name, executed: true, days, timeZone: data.timeZone || "local", events });
+    }
+
+    if (name === "youtube_search") {
+      const query = typeof args.query === "string" ? args.query.trim().slice(0, 200) : "";
+      if (!query) return res.status(400).json({ error: "A YouTube search query is required.", executed: false });
+      const accessToken = await getGoogleAccessToken("https://www.googleapis.com/auth/youtube.readonly");
+      const url = new URL("https://www.googleapis.com/youtube/v3/search");
+      url.searchParams.set("part", "snippet");
+      url.searchParams.set("type", "video");
+      url.searchParams.set("maxResults", "10");
+      url.searchParams.set("safeSearch", "moderate");
+      url.searchParams.set("q", query);
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(12_000) });
+      const data = await response.json() as { items?: Array<{ id?: { videoId?: string }; snippet?: { title?: string; description?: string; channelTitle?: string; publishedAt?: string } }>; error?: { message?: string } };
+      if (!response.ok) return res.status(response.status === 401 || response.status === 403 ? response.status : 502).json({ error: data.error?.message || "YouTube search failed.", executed: false });
+      const videos = (data.items || []).filter(item => item.id?.videoId).map(item => ({ id: item.id!.videoId!, title: item.snippet?.title || "(untitled video)", description: item.snippet?.description || "", channelTitle: item.snippet?.channelTitle || "", publishedAt: item.snippet?.publishedAt || "", url: `https://www.youtube.com/watch?v=${encodeURIComponent(item.id!.videoId!)}` }));
+      return res.json({ tool: name, executed: true, query, videos });
+    }
+
+    return res.status(400).json({ error: "Unsupported connected-app tool.", executed: false });
+  } catch (error) {
+    if (error instanceof GoogleAppError) return res.status(error.status).json({ error: error.message, executed: false });
+    if (error instanceof Error && error.name === "TimeoutError") return res.status(504).json({ error: "The connected service timed out. Try again.", executed: false });
+    console.error("Connected-app tool execution failed:", error);
+    return res.status(502).json({ error: "Connected-app tool execution failed. Check the provider connection and permissions.", executed: false });
+  }
 });
 
 // Files & ZIP Engine Endpoints
