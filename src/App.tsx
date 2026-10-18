@@ -81,6 +81,8 @@ export default function App() {
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const conversationFetchSequenceRef = useRef(0);
+  // Prevent stale in-flight list/detail requests from resurrecting a deleted chat.
+  const deletedConversationIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
     fetchConversations();
@@ -158,21 +160,24 @@ export default function App() {
 
   const fetchConversations = async () => {
     try {
-      const res = await fetch("/api/conversations");
+      const res = await fetch("/api/conversations", { cache: "no-store" });
       if (res.ok) {
-        const data = await res.json();
-        setConversations(data);
-        if (data.length > 0 && !activeId) {
+        const data: ConversationSummary[] = await res.json();
+        const visibleConversations = data.filter(
+          conversation => !deletedConversationIdsRef.current.has(conversation.id)
+        );
+        setConversations(visibleConversations);
+        if (visibleConversations.length > 0 && !activeId) {
           let rememberedId: string | null = null;
           try {
             rememberedId = window.localStorage.getItem("omnimind:last-conversation");
           } catch {
             // Storage may be unavailable in private or restricted browsing contexts.
           }
-          const rememberedConversation = data.find(
-            (conversation: ConversationSummary) => conversation.id === rememberedId
+          const rememberedConversation = visibleConversations.find(
+            conversation => conversation.id === rememberedId
           );
-          setActiveId(rememberedConversation?.id || data[0].id);
+          setActiveId(rememberedConversation?.id || visibleConversations[0].id);
         }
       }
     } catch (e) {
@@ -198,7 +203,10 @@ export default function App() {
       const res = await fetch(`/api/conversations/${id}`);
       if (res.ok) {
         const data = await res.json();
-        if (requestSequence !== conversationFetchSequenceRef.current) return;
+        if (
+          requestSequence !== conversationFetchSequenceRef.current ||
+          deletedConversationIdsRef.current.has(id)
+        ) return;
         setActiveConversation(data);
       }
     } catch (e) {
@@ -241,18 +249,20 @@ export default function App() {
         throw new Error(result?.error || "Conversation deletion was not confirmed");
       }
 
-      // Remove the confirmed-deleted chat immediately. Refresh from the
-      // server when possible, but don't make a successful delete look failed
-      // just because the follow-up list request is unavailable or stale.
+      // Tombstone the ID before awaiting anything else. Any older list/detail
+      // request that resolves later must not restore this conversation.
+      deletedConversationIdsRef.current.add(id);
+      conversationFetchSequenceRef.current += 1;
+
       const localRemaining = conversations.filter(conversation => conversation.id !== id);
       let nextConversations = localRemaining;
       try {
         const listResponse = await fetch("/api/conversations", { cache: "no-store" });
         if (listResponse.ok) {
           const latestConversations: ConversationSummary[] = await listResponse.json();
-          if (!latestConversations.some(conversation => conversation.id === id)) {
-            nextConversations = latestConversations;
-          }
+          nextConversations = latestConversations.filter(
+            conversation => !deletedConversationIdsRef.current.has(conversation.id)
+          );
         }
       } catch (refreshError) {
         console.warn("Could not refresh conversation list after deletion:", refreshError);
