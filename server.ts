@@ -1810,7 +1810,7 @@ app.post("/api/apps/github/changes/execute", async (req, res) => {
         title: pending.commitMessage,
         head: branchName,
         base: pending.baseBranch,
-        body: "## Proposed change\\n\\nUpdated " + pending.path + " through OmniMind after explicit user confirmation.\\n\\n- Base branch: " + pending.baseBranch + "\\n- Changes are isolated on " + branchName + " for review.\\n- Review the diff and run repository checks before merging."
+        body: "## Proposed change\n\nUpdated " + pending.path + " through OmniMind after explicit user confirmation.\n\n- Base branch: " + pending.baseBranch + "\n- Changes are isolated on " + branchName + " for review.\n- Review the diff and run repository checks before merging."
       }),
       signal: AbortSignal.timeout(12_000)
     });
