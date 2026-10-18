@@ -5,7 +5,7 @@ import { AppIcon } from "./AppIcon";
 type Frequency = "once" | "daily" | "weekly";
 interface ScheduledTaskRun {
   id: string; startedAt: number; finishedAt: number; status: "success" | "failed";
-  trigger: "manual" | "scheduled"; result?: string; error?: string;
+  trigger: "manual" | "scheduled" | "retry"; result?: string; error?: string;
 }
 interface ScheduledTask {
   id: string; title: string; prompt: string; frequency: Frequency; nextRunAt: number;
@@ -179,6 +179,23 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
     }
   };
 
+  const retryFailedTask = async (task: ScheduledTask) => {
+    if (!window.confirm(`Retry the last failed run for "${task.title}" now?`)) return;
+    setError(null);
+    setRunningTaskIds(prev => new Set(prev).add(task.id));
+    try {
+      const response = await fetch(`/api/scheduled-tasks/${encodeURIComponent(task.id)}/retry`, { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (data.task) setTasks(prev => prev.map(item => item.id === task.id ? data.task : item));
+      if (!response.ok) throw new Error(data.error || "Could not retry failed task.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not retry failed task.");
+      await loadTasks();
+    } finally {
+      setRunningTaskIds(prev => { const next = new Set(prev); next.delete(task.id); return next; });
+    }
+  };
+
   const beginEditTask = (task: ScheduledTask) => {
     setError(null);
     setEditingTask({
@@ -324,12 +341,12 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
                 <div className="space-y-2">{task.runs.slice(0, 3).map(run => <div key={run.id} className="flex items-start gap-2 text-xs">
                   <span className={run.status === "success" ? "text-emerald-500" : "text-rose-500"}>{run.status === "success" ? "Success" : "Failed"}</span>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[var(--claude-text-muted)]">{run.trigger === "manual" ? "Manual" : "Scheduled"} · {new Date(run.finishedAt).toLocaleString()}</div>
+                    <div className="text-[var(--claude-text-muted)]">{run.trigger === "retry" ? "Retry" : run.trigger === "manual" ? "Manual" : "Scheduled"} · {new Date(run.finishedAt).toLocaleString()}</div>
                     {(run.error || run.result) && <p className="mt-1 whitespace-pre-wrap break-words text-[var(--claude-text-muted)]">{run.error || run.result}</p>}
                   </div>
                 </div>)}</div>
               </div> : <p className="text-xs text-[var(--claude-text-muted)]">No execution history yet · {task.runCount} runs</p>}
-              <div className="flex flex-wrap justify-end gap-2"><Button size="sm" variant="secondary" onClick={() => void runTaskNow(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{runningTaskIds.has(task.id) || task.running ? "Running…" : "Run now"}</Button><Button size="sm" variant="quiet" onClick={() => beginEditTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{editingTask?.id === task.id ? "Editing…" : "Edit"}</Button><Button size="sm" variant="quiet" onClick={() => void toggleTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{task.enabled ? "Pause" : "Resume"}</Button><Button size="sm" variant="quiet" onClick={() => void deleteTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>Delete</Button></div>
+              <div className="flex flex-wrap justify-end gap-2">{task.runs?.[0]?.status === "failed" && <Button size="sm" variant="secondary" onClick={() => void retryFailedTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{runningTaskIds.has(task.id) || task.running ? "Retrying…" : "Retry failure"}</Button>}<Button size="sm" variant="secondary" onClick={() => void runTaskNow(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{runningTaskIds.has(task.id) || task.running ? "Running…" : "Run now"}</Button><Button size="sm" variant="quiet" onClick={() => beginEditTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{editingTask?.id === task.id ? "Editing…" : "Edit"}</Button><Button size="sm" variant="quiet" onClick={() => void toggleTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{task.enabled ? "Pause" : "Resume"}</Button><Button size="sm" variant="quiet" onClick={() => void deleteTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>Delete</Button></div>
             </article>
           ))}
         </div>
