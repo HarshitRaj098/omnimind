@@ -50,7 +50,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   useEffect(() => {
     if (isAtBottom) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      // Smooth scrolling on every streamed token repeatedly restarts the animation
+      // and makes long responses feel laggy. Keep streaming scrolls immediate.
+      messagesEndRef.current?.scrollIntoView({
+        behavior: isGenerating ? "auto" : "smooth",
+        block: "end",
+      });
     }
   }, [conversation?.messages, isGenerating, isAtBottom]);
 
@@ -64,13 +69,33 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     }
   };
 
+  // Cache sanitized Markdown by source text so a new streamed token does not
+  // force every unchanged historical message through marked + DOMPurify again.
+  const markdownCacheRef = useRef<Map<string, string>>(new Map());
+
   const renderMarkdown = (content: string) => {
-    try {
-      const rawHtml = marked.parse(content || "");
-      return { __html: DOMPurify.sanitize(rawHtml as string) };
-    } catch {
-      return { __html: DOMPurify.sanitize(content || "") };
+    const cache = markdownCacheRef.current;
+    const cached = cache.get(content);
+    if (cached !== undefined) {
+      // Refresh insertion order for a small LRU cache.
+      cache.delete(content);
+      cache.set(content, cached);
+      return { __html: cached };
     }
+
+    let html: string;
+    try {
+      html = DOMPurify.sanitize(marked.parse(content || "") as string);
+    } catch {
+      html = DOMPurify.sanitize(content || "");
+    }
+
+    cache.set(content, html);
+    if (cache.size > 100) {
+      const oldestKey = cache.keys().next().value;
+      if (oldestKey !== undefined) cache.delete(oldestKey);
+    }
+    return { __html: html };
   };
 
   const hasMessages = Boolean(conversation?.messages.length);
