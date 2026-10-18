@@ -2,6 +2,7 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs";
+import { randomBytes } from "node:crypto";
 import AdmZip from "adm-zip";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
@@ -16,6 +17,8 @@ const DATA_DIR = path.join(process.cwd(), "data");
 const CONV_FILE = path.join(DATA_DIR, "conversations.json");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 const APPS_FILE = path.join(DATA_DIR, "connected_apps.json");
+const GOOGLE_TOKENS_FILE = path.join(DATA_DIR, "google_oauth_tokens.json");
+const googleOAuthStates = new Map<string, number>();
 const FILES_INDEX_FILE = path.join(DATA_DIR, "file_index.json");
 const SKILLS_FILE = path.join(DATA_DIR, "skills.json");
 const SHARED_FILE = path.join(DATA_DIR, "shared_conversations.json");
@@ -74,6 +77,7 @@ interface ConnectedApp {
   connected: boolean;
   scopes: string[];
   lastConnected?: number;
+  accountEmail?: string;
 }
 
 interface IndexedFile {
@@ -139,7 +143,7 @@ const DEFAULT_APPS: ConnectedApp[] = [
     name: "Google Gmail",
     category: "google",
     connected: false,
-    scopes: ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.send"]
+    scopes: ["https://www.googleapis.com/auth/gmail.readonly"]
   },
   {
     id: "drive",
@@ -153,28 +157,28 @@ const DEFAULT_APPS: ConnectedApp[] = [
     name: "Google Docs",
     category: "google",
     connected: false,
-    scopes: ["https://www.googleapis.com/auth/documents"]
+    scopes: ["https://www.googleapis.com/auth/documents.readonly"]
   },
   {
     id: "sheets",
     name: "Google Sheets",
     category: "google",
     connected: false,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"]
   },
   {
     id: "calendar",
     name: "Google Calendar",
     category: "google",
     connected: false,
-    scopes: ["https://www.googleapis.com/auth/calendar"]
+    scopes: ["https://www.googleapis.com/auth/calendar.readonly"]
   },
   {
     id: "tasks",
     name: "Google Tasks",
     category: "google",
     connected: false,
-    scopes: ["https://www.googleapis.com/auth/tasks"]
+    scopes: ["https://www.googleapis.com/auth/tasks.readonly"]
   },
   {
     id: "youtube",
@@ -350,25 +354,59 @@ function saveSharedConversations(shared: SharedConversation[]) {
   }
 }
 
+interface GoogleOAuthTokens {
+  access_token: string;
+  refresh_token?: string;
+  scope: string;
+  expires_at: number;
+  connectedAt: number;
+  email?: string;
+}
+
+function loadGoogleOAuthTokens(): GoogleOAuthTokens | null {
+  try {
+    if (!fs.existsSync(GOOGLE_TOKENS_FILE)) return null;
+    return JSON.parse(fs.readFileSync(GOOGLE_TOKENS_FILE, "utf-8")) as GoogleOAuthTokens;
+  } catch (error) {
+    console.error("Could not read Google OAuth tokens:", error);
+    return null;
+  }
+}
+
+function saveGoogleOAuthTokens(tokens: GoogleOAuthTokens) {
+  const temporaryFile = GOOGLE_TOKENS_FILE + ".tmp";
+  fs.writeFileSync(temporaryFile, JSON.stringify(tokens, null, 2), { encoding: "utf-8", mode: 0o600 });
+  fs.renameSync(temporaryFile, GOOGLE_TOKENS_FILE);
+  try { fs.chmodSync(GOOGLE_TOKENS_FILE, 0o600); } catch { /* Platform-dependent permissions. */ }
+}
+
 function loadApps(): ConnectedApp[] {
   let apps: ConnectedApp[] = DEFAULT_APPS;
   try {
     if (fs.existsSync(APPS_FILE)) {
-      apps = JSON.parse(fs.readFileSync(APPS_FILE, "utf-8"));
+      const storedApps = JSON.parse(fs.readFileSync(APPS_FILE, "utf-8")) as ConnectedApp[];
+      apps = DEFAULT_APPS.map(defaultApp => ({
+        ...defaultApp,
+        ...(storedApps.find(stored => stored.id === defaultApp.id) || {}),
+        scopes: defaultApp.scopes
+      }));
     }
-  } catch (e) {
-    console.error("Error loading connected apps:", e);
+  } catch (error) {
+    console.error("Error loading connected apps:", error);
   }
 
-  // Provider OAuth/API integrations are not implemented yet. Never trust a
-  // persisted UI toggle as proof that an external account is authenticated.
-  const safeApps = apps.map(app => ({
-    ...app,
-    connected: false,
-    lastConnected: undefined
-  }));
-  saveApps(safeApps);
-  return safeApps;
+  const tokens = loadGoogleOAuthTokens();
+  const grantedScopes = new Set((tokens?.scope || "").split(/\s+/).filter(Boolean));
+  return apps.map(app => {
+    const connected = app.category !== "whatsapp" && Boolean(tokens) &&
+      app.scopes.every(scope => grantedScopes.has(scope));
+    return {
+      ...app,
+      connected,
+      accountEmail: connected ? tokens?.email : undefined,
+      lastConnected: connected ? tokens?.connectedAt : undefined
+    };
+  });
 }
 
 function saveApps(apps: ConnectedApp[]) {
@@ -869,29 +907,144 @@ app.delete("/api/projects/:id", (req, res) => {
   res.json({ success: true });
 });
 
-// Connected Apps Endpoints
-app.get("/api/apps", (req, res) => {
+// Connected Apps: Google OAuth 2.0
+const GOOGLE_OAUTH_SCOPES = [
+  "openid",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/documents.readonly",
+  "https://www.googleapis.com/auth/spreadsheets.readonly",
+  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/tasks.readonly",
+  "https://www.googleapis.com/auth/youtube.readonly"
+];
+
+function googleOAuthConfig() {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const appUrl = process.env.APP_URL?.replace(/\/$/, "");
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || (appUrl ? `${appUrl}/api/apps/google/callback` : "");
+  return { clientId, clientSecret, redirectUri, configured: Boolean(clientId && clientSecret && redirectUri) };
+}
+
+app.get("/api/apps/status", (_req, res) => {
+  const config = googleOAuthConfig();
+  const tokens = loadGoogleOAuthTokens();
+  res.json({ googleOAuthConfigured: config.configured, googleAccountEmail: tokens?.email || null, googleConnected: Boolean(tokens) });
+});
+
+app.get("/api/apps", (_req, res) => {
   res.json(loadApps());
 });
 
-app.post("/api/apps/:id/toggle", (req, res) => {
-  const { id } = req.params;
-  const { connected } = req.body;
-  const apps = loadApps();
-  const appItem = apps.find(a => a.id === id);
-  if (!appItem) return res.status(404).json({ error: "App not found" });
+app.get("/api/apps/google/connect", (_req, res) => {
+  const config = googleOAuthConfig();
+  if (!config.configured) {
+    return res.status(503).type("text/plain").send(
+      "Google OAuth is not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and APP_URL (or GOOGLE_REDIRECT_URI), then restart OmniMind."
+    );
+  }
+  const now = Date.now();
+  for (const [state, createdAt] of googleOAuthStates) {
+    if (now - createdAt > 10 * 60 * 1000) googleOAuthStates.delete(state);
+  }
+  const state = randomBytes(32).toString("hex");
+  googleOAuthStates.set(state, now);
+  const authorizeUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  authorizeUrl.searchParams.set("client_id", config.clientId!);
+  authorizeUrl.searchParams.set("redirect_uri", config.redirectUri);
+  authorizeUrl.searchParams.set("response_type", "code");
+  authorizeUrl.searchParams.set("scope", GOOGLE_OAUTH_SCOPES.join(" "));
+  authorizeUrl.searchParams.set("access_type", "offline");
+  authorizeUrl.searchParams.set("prompt", "consent");
+  authorizeUrl.searchParams.set("include_granted_scopes", "true");
+  authorizeUrl.searchParams.set("state", state);
+  return res.redirect(authorizeUrl.toString());
+});
 
-  if (connected) {
+app.get("/api/apps/google/callback", async (req, res) => {
+  const state = typeof req.query.state === "string" ? req.query.state : "";
+  const createdAt = googleOAuthStates.get(state);
+  googleOAuthStates.delete(state);
+  if (!state || !createdAt || Date.now() - createdAt > 10 * 60 * 1000) {
+    return res.status(400).type("text/plain").send("Google sign-in expired or OAuth state was invalid. Return to OmniMind and try again.");
+  }
+  if (typeof req.query.error === "string") {
+    return res.redirect("/?connected_apps=error&reason=" + encodeURIComponent(req.query.error));
+  }
+  const code = typeof req.query.code === "string" ? req.query.code : "";
+  const config = googleOAuthConfig();
+  if (!code || !config.configured) {
+    return res.status(400).type("text/plain").send("Google did not return an authorization code, or OAuth is not configured.");
+  }
+
+  try {
+    const previousTokens = loadGoogleOAuthTokens();
+    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: config.clientId!,
+        client_secret: config.clientSecret!,
+        redirect_uri: config.redirectUri,
+        grant_type: "authorization_code"
+      })
+    });
+    const tokenData = await tokenResponse.json() as {
+      access_token?: string; refresh_token?: string; scope?: string; expires_in?: number; error?: string;
+    };
+    if (!tokenResponse.ok || !tokenData.access_token || !tokenData.scope) {
+      throw new Error(tokenData.error || "Google token exchange failed.");
+    }
+    const userResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` }
+    });
+    const userData = userResponse.ok ? await userResponse.json() as { email?: string } : {};
+    saveGoogleOAuthTokens({
+      access_token: tokenData.access_token,
+      refresh_token: tokenData.refresh_token || previousTokens?.refresh_token,
+      scope: tokenData.scope,
+      expires_at: Date.now() + Math.max(0, tokenData.expires_in || 3600) * 1000,
+      connectedAt: Date.now(),
+      email: userData.email
+    });
+    return res.redirect("/?connected_apps=success");
+  } catch (error) {
+    console.error("Google OAuth callback failed:", error);
+    return res.redirect("/?connected_apps=error&reason=token_exchange_failed");
+  }
+});
+
+app.post("/api/apps/google/disconnect", (_req, res) => {
+  try {
+    if (fs.existsSync(GOOGLE_TOKENS_FILE)) fs.unlinkSync(GOOGLE_TOKENS_FILE);
+    return res.json({ success: true, apps: loadApps() });
+  } catch (error) {
+    console.error("Could not disconnect Google account:", error);
+    return res.status(500).json({ error: "Could not remove the saved Google connection." });
+  }
+});
+
+app.post("/api/apps/:id/toggle", (req, res) => {
+  const appItem = loadApps().find(a => a.id === req.params.id);
+  if (!appItem) return res.status(404).json({ error: "App not found" });
+  if (req.body?.connected) {
     return res.status(501).json({
-      error: `${appItem.name} cannot be connected yet because its real authentication integration is not implemented.`,
+      error: "Use Connect Google to authorize a real Google account. WhatsApp requires separate Meta Business API credentials.",
       connected: false
     });
   }
-
-  appItem.connected = false;
-  appItem.lastConnected = undefined;
-  saveApps(apps);
-  return res.json(appItem);
+  if (appItem.category === "whatsapp") {
+    return res.status(501).json({ error: "WhatsApp Cloud API credentials and webhook setup are required.", connected: false });
+  }
+  try {
+    if (fs.existsSync(GOOGLE_TOKENS_FILE)) fs.unlinkSync(GOOGLE_TOKENS_FILE);
+    return res.json({ ...appItem, connected: false, accountEmail: undefined, lastConnected: undefined });
+  } catch {
+    return res.status(500).json({ error: "Could not remove the saved Google connection." });
+  }
 });
 
 // Tool Execution Endpoint for Connected Apps with Read/Write Distinction
