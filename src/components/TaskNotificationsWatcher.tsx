@@ -12,8 +12,6 @@ const POLL_INTERVAL_MS = 15000;
 
 export function TaskNotificationsWatcher() {
   useEffect(() => {
-    if (!("Notification" in window) || Notification.permission !== "granted") return;
-
     let stopped = false;
     let seeded = false;
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -38,14 +36,16 @@ export function TaskNotificationsWatcher() {
             lastRuns.set(task.id, task.lastRunAt);
             const failed = Boolean(task.lastError);
             const detail = (failed ? task.lastError : task.lastResult) || (failed ? "Task failed." : "Task completed.");
-            const notification = new Notification(
-              failed ? `Task failed: ${task.title}` : `Task completed: ${task.title}`,
-              { body: detail.slice(0, 220), tag: `omnimind-task-${task.id}` }
-            );
-            notification.onclick = () => {
-              window.focus();
-              notification.close();
-            };
+            if ("Notification" in window && Notification.permission === "granted") {
+              const notification = new Notification(
+                failed ? `Task failed: ${task.title}` : `Task completed: ${task.title}`,
+                { body: detail.slice(0, 220), tag: `omnimind-task-${task.id}` }
+              );
+              notification.onclick = () => {
+                window.focus();
+                notification.close();
+              };
+            }
           } else if (task.lastRunAt) {
             lastRuns.set(task.id, Math.max(previousRun, task.lastRunAt));
           }
