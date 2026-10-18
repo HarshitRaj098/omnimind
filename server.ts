@@ -21,7 +21,7 @@ const GOOGLE_TOKENS_FILE = path.join(DATA_DIR, "google_oauth_tokens.json");
 const GITHUB_TOKENS_FILE = path.join(DATA_DIR, "github_oauth_tokens.json");
 const googleOAuthStates = new Map<string, number>();
 const githubOAuthStates = new Map<string, number>();
-type PendingChatWrite = { id: string; type: "gmail_send" | "calendar_create" | "google_tasks_create" | "google_tasks_complete"; payload: Record<string, unknown>; summary: string; details: string; status: "pending" | "confirmed" | "cancelled" | "failed"; createdAt: number };
+type PendingChatWrite = { id: string; type: "gmail_send" | "calendar_create" | "google_tasks_create" | "google_tasks_complete"; payload: Record<string, unknown>; summary: string; details: string; status: "pending" | "executing" | "confirmed" | "cancelled" | "failed"; createdAt: number };
 const pendingChatWrites = new Map<string, PendingChatWrite>();
 
 const FILES_INDEX_FILE = path.join(DATA_DIR, "file_index.json");
@@ -2842,6 +2842,8 @@ app.post("/api/chat/action/confirm", async (req, res) => {
     google_tasks_create: "/api/apps/tasks/create",
     google_tasks_complete: "/api/apps/tasks/complete"
   };
+  // Claim the one-time action before awaiting the provider request to prevent double-click races.
+  pending.status = "executing";
   try {
     const response = await fetch("http://127.0.0.1:" + PORT + endpointByType[pending.type], {
       method: "POST",
