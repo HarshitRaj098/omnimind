@@ -5,7 +5,7 @@ import { AppIcon } from "./AppIcon";
 type Frequency = "once" | "daily" | "weekly";
 interface ScheduledTask {
   id: string; title: string; prompt: string; frequency: Frequency; nextRunAt: number;
-  enabled: boolean; createdAt: number; lastRunAt?: number; lastResult?: string; lastError?: string; runCount: number;
+  enabled: boolean; createdAt: number; lastRunAt?: number; lastResult?: string; lastError?: string; runCount: number; running?: boolean;
 }
 interface ScheduledTasksModalProps { isOpen: boolean; onClose: () => void; }
 
@@ -21,6 +21,7 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
   const [frequency, setFrequency] = useState<Frequency>("daily");
   const [runAt, setRunAt] = useState(() => toLocalInput(new Date(Date.now() + 60 * 60 * 1000)));
   const [loading, setLoading] = useState(false);
+  const [runningTaskIds, setRunningTaskIds] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
@@ -46,7 +47,12 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
     }
   }, []);
 
-  useEffect(() => { if (isOpen) void loadTasks(); }, [isOpen, loadTasks]);
+  useEffect(() => {
+    if (!isOpen) return;
+    void loadTasks();
+    const refreshId = window.setInterval(() => void loadTasks(), 10000);
+    return () => window.clearInterval(refreshId);
+  }, [isOpen, loadTasks]);
 
   const createTask = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -75,6 +81,22 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
       if (!response.ok) throw new Error(data.error || "Could not update task.");
       setTasks(prev => prev.map(item => item.id === task.id ? data : item));
     } catch (e) { setError(e instanceof Error ? e.message : "Could not update task."); }
+  };
+
+  const runTaskNow = async (task: ScheduledTask) => {
+    setError(null);
+    setRunningTaskIds(prev => new Set(prev).add(task.id));
+    try {
+      const response = await fetch(`/api/scheduled-tasks/${task.id}/run`, { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (data.task) setTasks(prev => prev.map(item => item.id === task.id ? data.task : item));
+      if (!response.ok) throw new Error(data.error || "Task execution failed.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not run task.");
+      await loadTasks();
+    } finally {
+      setRunningTaskIds(prev => { const next = new Set(prev); next.delete(task.id); return next; });
+    }
   };
 
   const deleteTask = async (task: ScheduledTask) => {
@@ -140,7 +162,7 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
               </div>
               {task.lastError && <p className="text-xs text-rose-500">{task.lastError}</p>}
               {task.lastResult && <pre className="max-h-36 overflow-auto whitespace-pre-wrap rounded-lg bg-[var(--claude-bg)] p-2 text-xs">{task.lastResult}</pre>}
-              <div className="flex justify-end gap-2"><Button size="sm" variant="quiet" onClick={() => void toggleTask(task)}>{task.enabled ? "Pause" : "Resume"}</Button><Button size="sm" variant="quiet" onClick={() => void deleteTask(task)}>Delete</Button></div>
+              <div className="flex flex-wrap justify-end gap-2"><Button size="sm" variant="secondary" onClick={() => void runTaskNow(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{runningTaskIds.has(task.id) || task.running ? "Running…" : "Run now"}</Button><Button size="sm" variant="quiet" onClick={() => void toggleTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{task.enabled ? "Pause" : "Resume"}</Button><Button size="sm" variant="quiet" onClick={() => void deleteTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>Delete</Button></div>
             </article>
           ))}
         </div>
