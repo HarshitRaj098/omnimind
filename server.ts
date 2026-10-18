@@ -1093,6 +1093,7 @@ app.post("/api/apps/google/disconnect", (_req, res) => {
 
 const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+const CALENDAR_READ_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
 
 // Read-only Gmail access. The query uses Gmail's native search syntax.
 app.get("/api/apps/gmail/messages", async (req, res) => {
@@ -1150,6 +1151,60 @@ app.get("/api/apps/gmail/messages", async (req, res) => {
       resultSizeEstimate: listData.resultSizeEstimate || 0,
       messages: messages.filter((message): message is NonNullable<typeof message> => Boolean(message))
     });
+  } catch (error) {
+    return sendGoogleAppError(res, error);
+  }
+});
+
+// Read-only Google Calendar events. Defaults to the next seven days and caps results.
+app.get("/api/apps/calendar/events", async (req, res) => {
+  try {
+    const accessToken = await getGoogleAccessToken(CALENDAR_READ_SCOPE);
+    const parsedDays = Number.parseInt(typeof req.query.days === "string" ? req.query.days : "7", 10);
+    const days = Number.isFinite(parsedDays) ? Math.min(30, Math.max(1, parsedDays)) : 7;
+    const timeMin = new Date().toISOString();
+    const timeMax = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+    const url = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
+    url.searchParams.set("timeMin", timeMin);
+    url.searchParams.set("timeMax", timeMax);
+    url.searchParams.set("maxResults", "20");
+    url.searchParams.set("singleEvents", "true");
+    url.searchParams.set("orderBy", "startTime");
+    url.searchParams.set("fields", "items(id,summary,start,end,htmlLink,location,status),timeZone");
+
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(12_000)
+    });
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        return res.status(response.status).json({ error: "Google Calendar denied access. Reconnect Google and confirm Calendar read-only permission." });
+      }
+      return res.status(502).json({ error: "Google Calendar could not load events. Try again." });
+    }
+    const data = await response.json() as {
+      timeZone?: string;
+      items?: Array<{
+        id: string;
+        summary?: string;
+        start?: { dateTime?: string; date?: string };
+        end?: { dateTime?: string; date?: string };
+        htmlLink?: string;
+        location?: string;
+        status?: string;
+      }>;
+    };
+    const events = (data.items || [])
+      .filter(event => event.status !== "cancelled")
+      .map(event => ({
+        id: event.id,
+        summary: event.summary || "(untitled event)",
+        start: event.start?.dateTime || event.start?.date || "",
+        end: event.end?.dateTime || event.end?.date || "",
+        htmlLink: event.htmlLink || "",
+        location: event.location || ""
+      }));
+    return res.json({ timeZone: data.timeZone || "local", days, events });
   } catch (error) {
     return sendGoogleAppError(res, error);
   }
