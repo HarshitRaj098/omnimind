@@ -3594,6 +3594,7 @@ app.post("/api/chat/stream", async (req, res) => {
     basePersonaText + 
     skillsInstruction + 
     connectedContext +
+    "\n[CONNECTED-APP WRITE SAFETY]: You may prepare email, calendar, or task write proposals using the declared tools, but these calls never execute writes. If a tool response says requiresConfirmation, clearly show the proposed details, state that nothing was sent or changed, and ask the user to review and explicitly confirm through the appropriate Connected Apps flow. Never claim a write succeeded unless a confirmed write endpoint reports success." +
     connectedToolContext + 
     filesContext + 
     memoryContext + 
