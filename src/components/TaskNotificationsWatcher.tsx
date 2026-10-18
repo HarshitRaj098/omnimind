@@ -9,6 +9,17 @@ interface ScheduledTaskSnapshot {
 }
 
 const POLL_INTERVAL_MS = 15000;
+const TASK_NOTIFICATION_PREFS_KEY = "omnimind:task-notification-preferences";
+
+function getNotificationPreferences() {
+  try {
+    const raw = window.localStorage.getItem(TASK_NOTIFICATION_PREFS_KEY);
+    const parsed = raw ? JSON.parse(raw) as { success?: boolean; failure?: boolean } : {};
+    return { success: parsed.success !== false, failure: parsed.failure !== false };
+  } catch {
+    return { success: true, failure: true };
+  }
+}
 
 export function TaskNotificationsWatcher() {
   useEffect(() => {
@@ -36,7 +47,9 @@ export function TaskNotificationsWatcher() {
             lastRuns.set(task.id, task.lastRunAt);
             const failed = Boolean(task.lastError);
             const detail = (failed ? task.lastError : task.lastResult) || (failed ? "Task failed." : "Task completed.");
-            if ("Notification" in window && Notification.permission === "granted") {
+            const preferences = getNotificationPreferences();
+            const shouldNotify = failed ? preferences.failure : preferences.success;
+            if (shouldNotify && "Notification" in window && Notification.permission === "granted") {
               const notification = new Notification(
                 failed ? `Task failed: ${task.title}` : `Task completed: ${task.title}`,
                 { body: detail.slice(0, 220), tag: `omnimind-task-${task.id}` }
