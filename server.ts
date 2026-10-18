@@ -605,10 +605,24 @@ app.delete("/api/conversations/:id", (req, res) => {
   }
 
   const remaining = convs.filter(conversation => conversation.id !== id);
+  const tempFile = `${CONV_FILE}.tmp`;
   try {
-    // Confirm the storage write before telling the client deletion succeeded.
-    fs.writeFileSync(CONV_FILE, JSON.stringify(remaining, null, 2), "utf-8");
+    // Write to a temporary file first so an interrupted write cannot leave
+    // conversations.json partially written.
+    fs.writeFileSync(tempFile, JSON.stringify(remaining, null, 2), "utf-8");
+    fs.renameSync(tempFile, CONV_FILE);
+
+    // Verify the committed file before confirming success to the client.
+    const persisted = JSON.parse(fs.readFileSync(CONV_FILE, "utf-8")) as Conversation[];
+    if (persisted.some(conversation => conversation.id === id)) {
+      throw new Error("Deleted conversation remains in persisted storage");
+    }
   } catch (error) {
+    try {
+      if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+    } catch (cleanupError) {
+      console.error("Failed to clean up temporary conversation file:", cleanupError);
+    }
     console.error("Failed to persist conversation deletion:", error);
     return res.status(500).json({ error: "Conversation could not be saved to storage" });
   }
