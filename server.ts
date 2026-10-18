@@ -1256,9 +1256,10 @@ app.post("/api/chat/stream", async (req, res) => {
   // Explicit memory capture. Respect consent settings and update duplicates.
   const memSettings = loadMemorySettings();
   if (memSettings.enabled && message) {
-    const rememberMatch = message.match(/(?:please\s+)?remember\s+(?:that\s+)?(.+)/i) ||
-      message.match(/always\s+remember\s+(.+)/i) ||
-      message.match(/my\s+preference\s+is\s+(.+)/i);
+    const rememberMatch = message.match(/^\s*(?:(?:please|can you|could you)\s+)?remember\s+(?:that\s+)?(.+)/i) ||
+      message.match(/\b(?:please\s+)?always\s+remember\s+(.+)/i) ||
+      message.match(/\bI want you to remember(?: that)?\s+(.+)/i) ||
+      message.match(/^\s*my\s+preference\s+is\s+(.+)/i);
     if (rememberMatch) {
       const extractedContent = rememberMatch[1].trim().replace(/[.!?]+$/, "");
       const allMems = loadMemories();
