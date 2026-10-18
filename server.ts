@@ -3663,9 +3663,10 @@ app.post("/api/chat/stream", async (req, res) => {
     let activeGroundingEnabled = useSearch;
 
     // Helper to initiate chat stream
+    let activeChatSession: any = null;
     const initStream = async (targetModel: string, withSearch: boolean) => {
       assertGeminiModelAvailable(targetModel);
-      const connectedAppFunctions = [{
+      const connectedAppFunctions: any[] = [{
         functionDeclarations: [
           { name: "gmail_search", description: "Search Gmail messages. Read-only.", parameters: { type: "OBJECT", properties: { query: { type: "STRING", description: "Gmail search syntax" } }, required: ["query"] } },
           { name: "drive_search", description: "Search Google Drive files by name. Read-only.", parameters: { type: "OBJECT", properties: { query: { type: "STRING" } }, required: ["query"] } },
@@ -3674,7 +3675,6 @@ app.post("/api/chat/stream", async (req, res) => {
         ]
       }];
       const toolsConfig = [...(withSearch ? [{ googleSearch: {} }] : []), ...connectedAppFunctions];
-      let activeChatSession: any = null;
       const chatSession = ai.chats.create({
         model: targetModel,
         history: history.length > 0 ? history : undefined,
