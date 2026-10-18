@@ -7,6 +7,14 @@ interface ScheduledTaskRun {
   id: string; startedAt: number; finishedAt: number; status: "success" | "failed";
   trigger: "manual" | "scheduled" | "retry"; result?: string; error?: string;
 }
+interface ScheduledTaskStatus {
+  active: number;
+  paused: number;
+  running: number;
+  due: number;
+  maxConcurrent: number;
+  failuresLast24Hours: number;
+}
 interface ScheduledTask {
   id: string; title: string; prompt: string; frequency: Frequency; nextRunAt: number;
   enabled: boolean; createdAt: number; lastRunAt?: number; lastResult?: string; lastError?: string;
@@ -32,6 +40,7 @@ const toLocalInput = (date: Date) => {
 
 export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen, onClose }) => {
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
+  const [taskStatus, setTaskStatus] = useState<ScheduledTaskStatus | null>(null);
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [frequency, setFrequency] = useState<Frequency>("daily");
@@ -110,10 +119,17 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
 
   const loadTasks = useCallback(async () => {
     try {
-      const response = await fetch("/api/scheduled-tasks", { cache: "no-store" });
+      const [response, statusResponse] = await Promise.all([
+        fetch("/api/scheduled-tasks", { cache: "no-store" }),
+        fetch("/api/scheduled-tasks/status", { cache: "no-store" }),
+      ]);
       const data = await response.json().catch(() => []);
       if (!response.ok) throw new Error(data.error || "Could not load scheduled tasks.");
       setTasks(Array.isArray(data) ? data : []);
+      if (statusResponse.ok) {
+        const status = await statusResponse.json().catch(() => null);
+        if (status && typeof status.maxConcurrent === "number") setTaskStatus(status as ScheduledTaskStatus);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load scheduled tasks.");
     }
@@ -327,6 +343,12 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
           </div>
         </div>
         {bulkMessage && <div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-600">{bulkMessage}</div>}
+        {taskStatus && <div className="grid grid-cols-2 gap-2 rounded-xl border border-[var(--claude-border)] p-3 sm:grid-cols-4" aria-live="polite">
+          <div><div className="text-xs text-[var(--claude-text-muted)]">Running</div><div className="mt-1 text-sm font-medium">{taskStatus.running} / {taskStatus.maxConcurrent}</div></div>
+          <div><div className="text-xs text-[var(--claude-text-muted)]">Due now</div><div className="mt-1 text-sm font-medium">{taskStatus.due}</div></div>
+          <div><div className="text-xs text-[var(--claude-text-muted)]">Active / paused</div><div className="mt-1 text-sm font-medium">{taskStatus.active} / {taskStatus.paused}</div></div>
+          <div><div className="text-xs text-[var(--claude-text-muted)]">Failures · 24h</div><div className="mt-1 text-sm font-medium">{taskStatus.failuresLast24Hours}</div></div>
+        </div>}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-xs text-[var(--claude-text-muted)]">Back up task definitions without execution results or connected-account credentials. Imports are always paused.</div>
           <div className="flex gap-2">

@@ -28,6 +28,7 @@ const MEMORIES_FILE = path.join(DATA_DIR, "memories.json");
 const MEMORY_SETTINGS_FILE = path.join(DATA_DIR, "memory_settings.json");
 const SCHEDULED_TASKS_FILE = path.join(DATA_DIR, "scheduled_tasks.json");
 const PROJECTS_FILE = path.join(DATA_DIR, "projects.json");
+const MAX_CONCURRENT_SCHEDULED_TASKS = 3;
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -1320,6 +1321,21 @@ app.get("/api/scheduled-tasks", (_req, res) => {
     .sort((a, b) => a.nextRunAt - b.nextRunAt));
 });
 
+app.get("/api/scheduled-tasks/status", (_req, res) => {
+  const tasks = loadScheduledTasks();
+  const now = Date.now();
+  const runs = tasks.flatMap(task => Array.isArray(task.runs) ? task.runs : []);
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({
+    active: tasks.filter(task => task.enabled).length,
+    paused: tasks.filter(task => !task.enabled).length,
+    running: scheduledTaskInFlight.size,
+    due: tasks.filter(task => task.enabled && task.nextRunAt <= now && !scheduledTaskInFlight.has(task.id)).length,
+    maxConcurrent: MAX_CONCURRENT_SCHEDULED_TASKS,
+    failuresLast24Hours: runs.filter(run => run.status === "failed" && run.finishedAt >= now - 86400000).length
+  });
+});
+
 app.post("/api/scheduled-tasks/bulk", (req, res) => {
   const action = req.body?.action;
   if (action !== "pause" && action !== "resume") {
@@ -1510,6 +1526,7 @@ app.post("/api/scheduled-tasks/:id/retry", async (req, res) => {
   const task = tasks.find(item => item.id === req.params.id);
   if (!task) return res.status(404).json({ error: "Scheduled task not found." });
   if (scheduledTaskInFlight.has(task.id)) return res.status(409).json({ error: "This task is already running." });
+  if (scheduledTaskInFlight.size >= MAX_CONCURRENT_SCHEDULED_TASKS) return res.status(429).json({ error: `OmniMind is already running ${MAX_CONCURRENT_SCHEDULED_TASKS} scheduled tasks. Wait for one to finish and retry.` });
   const lastRun = Array.isArray(task.runs) ? task.runs[0] : undefined;
   if (!lastRun || lastRun.status !== "failed") {
     return res.status(409).json({ error: "Retry is available only after the latest execution failed." });
@@ -1576,6 +1593,7 @@ app.post("/api/scheduled-tasks/:id/run", async (req, res) => {
   const task = tasks.find(item => item.id === req.params.id);
   if (!task) return res.status(404).json({ error: "Scheduled task not found." });
   if (scheduledTaskInFlight.has(task.id)) return res.status(409).json({ error: "This task is already running." });
+  if (scheduledTaskInFlight.size >= MAX_CONCURRENT_SCHEDULED_TASKS) return res.status(429).json({ error: `OmniMind is already running ${MAX_CONCURRENT_SCHEDULED_TASKS} scheduled tasks. Wait for one to finish and retry.` });
 
   scheduledTaskInFlight.add(task.id);
   const startedAt = Date.now();
@@ -3063,6 +3081,7 @@ setInterval(() => {
   );
 
   for (const task of due) {
+    if (scheduledTaskInFlight.size >= MAX_CONCURRENT_SCHEDULED_TASKS) break;
     const startedAt = Date.now();
     scheduledTaskInFlight.add(task.id);
     void (async () => {
