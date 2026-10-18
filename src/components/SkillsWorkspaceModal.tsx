@@ -356,10 +356,10 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
 
         {/* Right: Skill Detail or Create/Edit Form */}
         <div className="flex-1 flex flex-col border border-[var(--claude-border)] rounded-xl bg-[var(--claude-bg)] p-4 overflow-y-auto custom-scrollbar">
-          {isCreating ? (
+          {isCreating || isEditing ? (
             <div className="space-y-4">
               <h3 className="text-xs font-semibold text-[var(--claude-text)]">
-                Create New Skill
+                {isCreating ? "Create New Skill" : "Edit Skill"}
               </h3>
               <Input
                 label="Skill Name"
@@ -387,11 +387,11 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
                 onChange={(e) => setEditForm({ ...editForm, instructions: e.target.value })}
               />
               <div className="flex items-center justify-end gap-2 pt-2">
-                <Button variant="quiet" onClick={() => setIsCreating(false)}>
+                <Button variant="quiet" onClick={() => { setIsCreating(false); setIsEditing(false); setEditForm({}); }}>
                   Cancel
                 </Button>
-                <Button variant="primary" onClick={handleCreate}>
-                  Create Skill
+                <Button variant="primary" onClick={isCreating ? handleCreate : handleSaveEdit}>
+                  {isCreating ? "Create Skill" : "Save Changes"}
                 </Button>
               </div>
             </div>
@@ -411,11 +411,29 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Button
                     size="sm"
                     variant="quiet"
-                    onClick={() => handleExportSkill(selectedSkill)}
+                    onClick={() => {
+                      setActionError(null);
+                      setEditForm({
+                        name: selectedSkill.name,
+                        description: selectedSkill.description,
+                        category: selectedSkill.category,
+                        instructions: selectedSkill.instructions,
+                      });
+                      setIsEditing(true);
+                      setIsCreating(false);
+                    }}
+                    title="Edit skill instructions and metadata"
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="quiet"
+                    onClick={() => handleExportSkill(selectedSkill)
                     title="Export portable SKILL.md"
                   >
                     Export
