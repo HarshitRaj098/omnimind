@@ -244,7 +244,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     {!isUser && msg.pendingActions?.map((action) => (
                       <section key={action.id} className="mt-4 rounded-xl border border-[var(--claude-border)] bg-[var(--claude-surface)] p-4" aria-label="Action confirmation">
                         <div className="flex items-start gap-3">
-                          <AppIcon name="shield-check" size={18} />
+                          <AppIcon name="shield" size={18} />
                           <div className="min-w-0 flex-1">
                             <h3 className="text-sm font-semibold">{action.summary}</h3>
                             <p className="mt-1 text-xs leading-5 text-[var(--claude-text-muted)] whitespace-pre-wrap break-words">{action.details}</p>
