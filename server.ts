@@ -2706,6 +2706,7 @@ setInterval(() => {
   );
 
   for (const task of due) {
+    const startedAt = Date.now();
     scheduledTaskInFlight.add(task.id);
     void (async () => {
       try {
@@ -2720,7 +2721,7 @@ setInterval(() => {
         current.runCount += 1;
         appendScheduledTaskRun(current, {
           id: "run_" + randomBytes(6).toString("hex"),
-          startedAt: task.nextRunAt,
+          startedAt,
           finishedAt,
           status: "success",
           trigger: "scheduled",
@@ -2744,7 +2745,7 @@ setInterval(() => {
           current.runCount += 1;
           appendScheduledTaskRun(current, {
             id: "run_" + randomBytes(6).toString("hex"),
-            startedAt: task.nextRunAt,
+            startedAt,
             finishedAt: failedAt,
             status: "failed",
             trigger: "scheduled",
