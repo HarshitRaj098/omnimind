@@ -1236,6 +1236,51 @@ app.get("/api/scheduled-tasks", (_req, res) => {
     .sort((a, b) => a.nextRunAt - b.nextRunAt));
 });
 
+app.post("/api/scheduled-tasks/bulk", (req, res) => {
+  const action = req.body?.action;
+  if (action !== "pause" && action !== "resume") {
+    return res.status(400).json({ error: "Action must be pause or resume." });
+  }
+
+  const tasks = loadScheduledTasks();
+  let changed = 0;
+  let skippedRunning = 0;
+  let skippedOneTimeAlreadyRun = 0;
+
+  for (const task of tasks) {
+    if (scheduledTaskInFlight.has(task.id)) {
+      skippedRunning++;
+      continue;
+    }
+    if (action === "pause") {
+      if (task.enabled) {
+        task.enabled = false;
+        changed++;
+      }
+      continue;
+    }
+    // Never bulk-resume a one-time task that has already executed.
+    if (task.frequency === "once" && task.lastRunAt) {
+      skippedOneTimeAlreadyRun++;
+      continue;
+    }
+    if (!task.enabled) {
+      task.enabled = true;
+      changed++;
+    }
+  }
+
+  if (changed > 0) saveScheduledTasks(tasks);
+  return res.json({
+    success: true,
+    action,
+    changed,
+    skippedRunning,
+    skippedOneTimeAlreadyRun,
+    active: tasks.filter(task => task.enabled).length
+  });
+});
+
 app.get("/api/scheduled-tasks/export", (_req, res) => {
   const tasks = loadScheduledTasks().map(task => ({
     title: task.title,
