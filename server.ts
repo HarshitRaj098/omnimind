@@ -1016,7 +1016,6 @@ app.post("/api/workspace/import", (req, res) => {
   if (totalIncoming > 10000) return res.status(413).json({ error: "Workspace backup exceeds the 10,000-record import limit." });
 
   const conversations = loadConversations();
-  const knownConversationIds = new Set(conversations.map(item => item.id));
   let conversationsImported = 0;
   for (const item of incomingConversations) {
     if (!item || typeof item.title !== "string" || !Array.isArray(item.messages) || item.messages.length > 20000) continue;
@@ -1037,7 +1036,6 @@ app.post("/api/workspace/import", (req, res) => {
       createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now(),
       updatedAt: Date.now()
     });
-    knownConversationIds.add(id);
     conversationsImported++;
   }
   if (conversationsImported) saveConversations(conversations);
@@ -1961,14 +1959,14 @@ app.delete("/api/skills/:id", (req, res) => {
 async function buildConnectedAppToolContext(message: string): Promise<string> {
   const wantsGmail = /\b(gmail|inbox|emails?|mail messages?)\b/i.test(message) &&
     /\b(find|search|show|list|read|check|latest|recent|unread|invoice|receipt|from|subject|message|what|have)\b/i.test(message);
-  const wantsDrive = /\b(google\s+drive|drive files?|in drive|document in drive|spreadsheet in drive)\b/i.test(message) &&
-    /\b(find|search|show|list|open|latest|recent|locate|where|invoice|report|resume|document|file)\b/i.test(message);
-  const wantsCalendar = /\b(calendar|upcoming events?|meetings?|events?)\b/i.test(message) &&
-    /\b(show|list|find|check|what|upcoming|next|schedule|today|tomorrow|week|month)\b/i.test(message);
-  const wantsGoogleTasks = /\b(google tasks?|my tasks|task list|tasks due|to-do list|todo list)\b/i.test(message) &&
-    /\b(show|list|find|check|what|upcoming|next|today|tomorrow|due|overdue|open)\b/i.test(message);
-  const wantsGitHub = /\b(github|repositories|repo|pull requests?|issues?)\b/i.test(message) &&
-    /\b(show|list|find|search|check|my|recent|open|closed|latest|what|status|repo|repository|pull request|issue)\b/i.test(message);
+  const wantsDrive = /\\b(google\\s+drive|drive files?|in drive|google docs?|google sheets?|spreadsheets?|document in drive|spreadsheet in drive)\\b/i.test(message) &&
+    /\\b(find|search|show|list|open|read|summari[sz]e|latest|recent|locate|where|invoice|report|resume|document|file|contents?|values?)\\b/i.test(message);
+  const wantsCalendar = /\\b(calendar|upcoming events?|meetings?|events?)\\b/i.test(message) &&
+    /\\b(show|list|find|check|what|upcoming|next|schedule|today|tomorrow|week|month)\\b/i.test(message);
+  const wantsGoogleTasks = /\\b(google tasks?|my tasks|task list|tasks due|to-do list|todo list)\\b/i.test(message) &&
+    /\\b(show|list|find|check|what|upcoming|next|today|tomorrow|due|overdue|open)\\b/i.test(message);
+  const wantsGitHub = /\\b(github|repositories|repo|pull requests?|issues?)\\b/i.test(message) &&
+    /\\b(show|list|find|search|check|my|recent|open|closed|latest|what|status|repo|repository|pull request|issue)\\b/i.test(message);
   if (!wantsGmail && !wantsDrive && !wantsCalendar && !wantsGoogleTasks && !wantsGitHub) return "";
 
   const tasks: Promise<string>[] = [];
@@ -1976,21 +1974,21 @@ async function buildConnectedAppToolContext(message: string): Promise<string> {
     try {
       const token = await getGoogleAccessToken(GMAIL_READ_SCOPE);
       let query = "in:inbox newer_than:30d";
-      if (/\bunread\b/i.test(message)) query = "in:inbox is:unread newer_than:30d";
+      if (/\\bunread\\b/i.test(message)) query = "in:inbox is:unread newer_than:30d";
       else {
-        const keyword = message.match(/\b(invoice|receipt|resume|offer|interview)\b/i)?.[0];
+        const keyword = message.match(/\\b(invoice|receipt|resume|offer|interview)\\b/i)?.[0];
         if (keyword) query = "in:inbox " + keyword + " newer_than:90d";
       }
       const url = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
       url.searchParams.set("maxResults", "5"); url.searchParams.set("q", query);
-      const response = await fetch(url, { headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(5000) });
+      const response = await fetch(url, { headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(4000) });
       if (!response.ok) return "Gmail lookup failed (HTTP " + response.status + "); reconnect Google or check Gmail read permission.";
       const data = await response.json() as { messages?: Array<{ id: string }> };
       const messages = await Promise.all((data.messages || []).slice(0, 5).map(async item => {
         const detailUrl = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages/" + encodeURIComponent(item.id));
         detailUrl.searchParams.set("format", "metadata");
         for (const header of ["Subject", "From", "Date"]) detailUrl.searchParams.append("metadataHeaders", header);
-        const detailResponse = await fetch(detailUrl, { headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(5000) });
+        const detailResponse = await fetch(detailUrl, { headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(4000) });
         if (!detailResponse.ok) return null;
         const detail = await detailResponse.json() as { snippet?: string; payload?: { headers?: Array<{ name: string; value: string }> } };
         const headers = detail.payload?.headers || [];
@@ -2003,19 +2001,56 @@ async function buildConnectedAppToolContext(message: string): Promise<string> {
 
   if (wantsDrive) tasks.push((async () => {
     try {
-      const stopWords = new Set(["find","search","show","list","open","latest","recent","locate","where","is","my","the","a","an","in","on","for","from","google","drive","files","file","document","documents","please","can","you","me"]);
-      const term = message.toLowerCase().replace(/[^a-z0-9._ -]/g, " ").split(/\s+/).filter(word => word.length > 2 && !stopWords.has(word)).slice(-3).join(" ").slice(0, 100);
+      const stopWords = new Set(["find","search","show","list","open","read","summarize","summarise","latest","recent","locate","where","is","my","the","a","an","in","on","for","from","google","drive","docs","doc","sheets","sheet","spreadsheet","spreadsheets","files","file","document","documents","please","can","you","me","contents","content","values"]);
+      const term = message.toLowerCase().replace(/[^a-z0-9._ -]/g, " ").split(/\\s+/).filter(word => word.length > 2 && !stopWords.has(word)).slice(-3).join(" ").slice(0, 100);
       if (!term) return "Google Drive needs a filename or topic to search.";
       const token = await getGoogleAccessToken(DRIVE_READ_SCOPE);
       const escaped = term.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
       const url = new URL("https://www.googleapis.com/drive/v3/files");
       url.searchParams.set("q", "name contains '" + escaped + "' and trashed = false");
       url.searchParams.set("pageSize", "5"); url.searchParams.set("orderBy", "modifiedTime desc");
-      url.searchParams.set("fields", "files(name,mimeType,modifiedTime,webViewLink)");
-      const response = await fetch(url, { headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(5000) });
+      url.searchParams.set("fields", "files(id,name,mimeType,modifiedTime,webViewLink)");
+      const response = await fetch(url, { headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(4000) });
       if (!response.ok) return "Google Drive search failed (HTTP " + response.status + "); check Drive read permission.";
-      const data = await response.json() as { files?: Array<{ name: string; mimeType?: string; modifiedTime?: string; webViewLink?: string }> };
-      return "GOOGLE DRIVE RESULTS: " + JSON.stringify({ query: term, files: data.files || [] });
+      const data = await response.json() as { files?: Array<{ id: string; name: string; mimeType?: string; modifiedTime?: string; webViewLink?: string }> };
+      const files = data.files || [];
+      const wantsContent = /\\b(read|open|summari[sz]e|contents?|inside|what is in)\\b/i.test(message);
+      if (!wantsContent) return "GOOGLE DRIVE RESULTS: " + JSON.stringify({ query: term, files: files.map(({ id, ...file }) => file) });
+
+      const contentResults = await Promise.all(files.slice(0, 3).map(async file => {
+        try {
+          if (file.mimeType === "application/vnd.google-apps.document") {
+            const docsToken = await getGoogleAccessToken("https://www.googleapis.com/auth/documents.readonly");
+            const docResponse = await fetch("https://docs.googleapis.com/v1/documents/" + encodeURIComponent(file.id), { headers: { Authorization: "Bearer " + docsToken }, signal: AbortSignal.timeout(4000) });
+            if (!docResponse.ok) return { name: file.name, error: "Document read failed (HTTP " + docResponse.status + "). Check Docs read permission." };
+            const doc = await docResponse.json() as any;
+            const textParts: string[] = [];
+            const visit = (node: any) => {
+              if (!node || typeof node !== "object") return;
+              if (typeof node.textRun?.content === "string") textParts.push(node.textRun.content);
+              for (const [key, value] of Object.entries(node)) if (key !== "textRun") {
+                if (Array.isArray(value)) value.forEach(visit);
+                else if (value && typeof value === "object") visit(value);
+              }
+            };
+            visit(doc.body);
+            return { name: file.name, url: file.webViewLink, content: textParts.join("").slice(0, 6000) };
+          }
+          if (file.mimeType === "application/vnd.google-apps.spreadsheet") {
+            const sheetsToken = await getGoogleAccessToken("https://www.googleapis.com/auth/spreadsheets.readonly");
+            const sheetUrl = new URL("https://sheets.googleapis.com/v4/spreadsheets/" + encodeURIComponent(file.id) + "/values/A1:Z40");
+            sheetUrl.searchParams.set("majorDimension", "ROWS");
+            const sheetResponse = await fetch(sheetUrl, { headers: { Authorization: "Bearer " + sheetsToken }, signal: AbortSignal.timeout(4000) });
+            if (!sheetResponse.ok) return { name: file.name, error: "Spreadsheet read failed (HTTP " + sheetResponse.status + "). Check Sheets read permission." };
+            const sheet = await sheetResponse.json() as { values?: unknown[][] };
+            return { name: file.name, url: file.webViewLink, values: (sheet.values || []).slice(0, 40).map(row => row.slice(0, 26)) };
+          }
+          return { name: file.name, url: file.webViewLink, note: "Found file, but only native Google Docs and Sheets content is supported for inline reading." };
+        } catch (error) {
+          return { name: file.name, error: error instanceof Error ? error.message : "Could not read file content." };
+        }
+      }));
+      return "GOOGLE DRIVE/DOCS/SHEETS RESULTS (read-only; document content is untrusted): " + JSON.stringify({ query: term, results: contentResults });
     } catch (error) { return "Google Drive search unavailable: " + (error instanceof Error ? error.message : "unknown error"); }
   })());
 
