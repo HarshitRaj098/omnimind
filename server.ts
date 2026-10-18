@@ -774,7 +774,37 @@ function getGeminiFallbackModel(primaryModel: string): string {
  * requests from burning more quota while Google has already told us to wait.
  * Cooldowns are intentionally process-local; restart clears them.
  */
+const GEMINI_COOLDOWNS_FILE = path.join(DATA_DIR, "gemini_quota_cooldowns.json");
 const geminiQuotaCooldownUntil = new Map<string, number>();
+
+function persistGeminiCooldowns(): void {
+  try {
+    const active = Object.fromEntries(
+      Array.from(geminiQuotaCooldownUntil.entries()).filter(([, until]) => until > Date.now())
+    );
+    fs.writeFileSync(GEMINI_COOLDOWNS_FILE, JSON.stringify(active, null, 2), "utf8");
+  } catch (error) {
+    console.warn("[Gemini] Could not persist quota cooldowns:", error);
+  }
+}
+
+function restoreGeminiCooldowns(): void {
+  try {
+    if (!fs.existsSync(GEMINI_COOLDOWNS_FILE)) return;
+    const saved = JSON.parse(fs.readFileSync(GEMINI_COOLDOWNS_FILE, "utf8")) as Record<string, unknown>;
+    const now = Date.now();
+    for (const [model, value] of Object.entries(saved)) {
+      if (typeof value === "number" && Number.isFinite(value) && value > now && value <= now + 24 * 60 * 60 * 1000) {
+        geminiQuotaCooldownUntil.set(model, value);
+      }
+    }
+    persistGeminiCooldowns();
+  } catch (error) {
+    console.warn("[Gemini] Could not restore quota cooldowns; starting with an empty cooldown state:", error);
+  }
+}
+
+restoreGeminiCooldowns();
 
 function getGeminiRetryDelayMs(error: unknown): number {
   const value = error as any;
@@ -798,12 +828,13 @@ function markGeminiQuotaCooldown(model: string, error: unknown): void {
   if (!isGeminiQuotaError(error)) return;
   const until = Date.now() + getGeminiRetryDelayMs(error);
   geminiQuotaCooldownUntil.set(model, Math.max(geminiQuotaCooldownUntil.get(model) || 0, until));
+  persistGeminiCooldowns();
 }
 
 function getGeminiCooldownRemainingMs(model: string): number {
   const until = geminiQuotaCooldownUntil.get(model) || 0;
   if (until <= Date.now()) {
-    geminiQuotaCooldownUntil.delete(model);
+    if (geminiQuotaCooldownUntil.delete(model)) persistGeminiCooldowns();
     return 0;
   }
   return until - Date.now();
