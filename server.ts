@@ -2201,7 +2201,7 @@ app.post("/api/chat/stream", async (req, res) => {
 
   // Grounding adds latency. Keep ordinary conversation fast and invoke Google
   // Search when the user asks for fresh facts, research, or an explicit web search.
-  const searchIntent = /\\b(search (?:the )?web|web search|look up|research|latest|current|today|yesterday|this week|recent news|breaking|price|pricing|weather|forecast|stock|exchange rate|compare (?:the )?latest|sources|citations|official site|who won|when is the next)\\b/i.test(String(message || ""));
+  const searchIntent = /\b(search (?:the )?web|web search|look up|research|latest|current|today|yesterday|this week|recent news|breaking|price|pricing|weather|forecast|stock|exchange rate|compare (?:the )?latest|sources|citations|official site|who won|when is the next)\b/i.test(String(message || ""));
   const useSearch = webSearch !== false && searchIntent;
 
   let isAborted = false;
