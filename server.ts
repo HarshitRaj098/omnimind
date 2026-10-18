@@ -1004,14 +1004,35 @@ app.get("/api/workspace/export", (_req, res) => {
 
 app.post("/api/workspace/import", (req, res) => {
   const backup = req.body;
-  if (!backup || backup.format !== "omnimind-workspace-backup" || backup.version !== 1) {
-    return res.status(400).json({ error: "Unsupported backup. Select an OmniMind workspace backup JSON file." });
+  const isOmniMindBackup = backup?.format === "omnimind-workspace-backup" && backup?.version === 1;
+  const isChatGPTConversationExport = Array.isArray(backup) && backup.some((item: any) => item && item.mapping && typeof item.mapping === "object");
+  if (!isOmniMindBackup && !isChatGPTConversationExport) {
+    return res.status(400).json({ error: "Select an OmniMind workspace backup or ChatGPT conversations.json export. For ChatGPT, extract conversations.json from your data export first." });
   }
-  const incomingConversations = Array.isArray(backup.conversations) ? backup.conversations : [];
-  const incomingMemories = Array.isArray(backup.memories) ? backup.memories : [];
-  const incomingProjects = Array.isArray(backup.projects) ? backup.projects : [];
-  const incomingSkills = Array.isArray(backup.skills) ? backup.skills : [];
-  const incomingTasks = Array.isArray(backup.scheduledTasks) ? backup.scheduledTasks : [];
+  const incomingConversations = isChatGPTConversationExport
+    ? backup.map((conversation: any) => {
+        const mapping = conversation.mapping && typeof conversation.mapping === "object" ? Object.values(conversation.mapping) as any[] : [];
+        const messages = mapping
+          .map(node => node?.message)
+          .filter(message => message && ["user", "assistant"].includes(message.author?.role))
+          .map(message => {
+            const parts = Array.isArray(message.content?.parts) ? message.content.parts : [];
+            const content = parts.map((part: any) => typeof part === "string" ? part : typeof part?.text === "string" ? part.text : "").filter(Boolean).join("\\n");
+            return {
+              role: message.author.role === "assistant" ? "model" : "user",
+              content,
+              timestamp: Number.isFinite(message.create_time) ? message.create_time * 1000 : Date.now()
+            };
+          })
+          .filter(message => message.content.trim())
+          .sort((a, b) => a.timestamp - b.timestamp);
+        return { title: typeof conversation.title === "string" ? conversation.title : "Imported ChatGPT conversation", model: "imported-chatgpt", messages, createdAt: Number.isFinite(conversation.create_time) ? conversation.create_time * 1000 : Date.now() };
+      })
+    : Array.isArray(backup.conversations) ? backup.conversations : [];
+  const incomingMemories = isOmniMindBackup && Array.isArray(backup.memories) ? backup.memories : [];
+  const incomingProjects = isOmniMindBackup && Array.isArray(backup.projects) ? backup.projects : [];
+  const incomingSkills = isOmniMindBackup && Array.isArray(backup.skills) ? backup.skills : [];
+  const incomingTasks = isOmniMindBackup && Array.isArray(backup.scheduledTasks) ? backup.scheduledTasks : [];
   const totalIncoming = incomingConversations.length + incomingMemories.length + incomingProjects.length + incomingSkills.length + incomingTasks.length;
   if (totalIncoming > 10000) return res.status(413).json({ error: "Workspace backup exceeds the 10,000-record import limit." });
 
