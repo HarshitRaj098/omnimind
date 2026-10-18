@@ -1862,6 +1862,11 @@ const GOOGLE_OAUTH_SCOPES = [
   "https://www.googleapis.com/auth/tasks"
 ];
 
+function youtubeOAuthRedirectUri() {
+  const appUrl = process.env.APP_URL?.replace(/\/$/, "");
+  return process.env.YOUTUBE_REDIRECT_URI || (appUrl ? `${appUrl}/api/apps/youtube/callback` : "");
+}
+
 function googleOAuthConfig() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -1930,7 +1935,7 @@ app.get("/api/apps/google/connect", (_req, res) => {
   googleOAuthStates.set(state, now);
   const authorizeUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   authorizeUrl.searchParams.set("client_id", config.clientId!);
-  authorizeUrl.searchParams.set("redirect_uri", config.redirectUri);
+  authorizeUrl.searchParams.set("redirect_uri", youtubeOAuthRedirectUri());
   authorizeUrl.searchParams.set("response_type", "code");
   authorizeUrl.searchParams.set("scope", GOOGLE_OAUTH_SCOPES.join(" "));
   authorizeUrl.searchParams.set("access_type", "offline");
@@ -2583,7 +2588,7 @@ app.get("/api/apps/youtube/callback", async (req, res) => {
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ code, client_id: config.clientId!, client_secret: config.clientSecret!, redirect_uri: config.redirectUri, grant_type: "authorization_code" }),
+      body: new URLSearchParams({ code, client_id: config.clientId!, client_secret: config.clientSecret!, redirect_uri: youtubeOAuthRedirectUri(), grant_type: "authorization_code" }),
       signal: AbortSignal.timeout(10_000)
     });
     const tokenData = await tokenResponse.json() as { access_token?: string; refresh_token?: string; expires_in?: number; scope?: string; error?: string };
@@ -2618,7 +2623,7 @@ app.post("/api/apps/youtube/disconnect", (_req, res) => {
 async function getYouTubeAccessToken(): Promise<string> {
   const tokens = loadYouTubeOAuthTokens();
   if (!tokens) throw new GoogleAppError(401, "Connect YouTube separately first.");
-  const scopes = new Set((tokens.scope || "").split(/\\s+/).filter(Boolean));
+  const scopes = new Set((tokens.scope || "").split(/\s+/).filter(Boolean));
   if (!scopes.has("https://www.googleapis.com/auth/youtube.readonly")) throw new GoogleAppError(403, "YouTube read-only permission was not granted. Reconnect YouTube.");
   if (tokens.expires_at > Date.now() + 60_000) return tokens.access_token;
   if (!tokens.refresh_token) throw new GoogleAppError(401, "YouTube access expired. Reconnect YouTube.");
