@@ -82,6 +82,47 @@ export const MemoryWorkspaceModal: React.FC<MemoryWorkspaceModalProps> = ({
     }
   };
 
+  const handleExportWorkspace = async () => {
+    try {
+      const response = await fetch("/api/workspace/export", { cache: "no-store" });
+      if (!response.ok) throw new Error("Workspace export failed.");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "omnimind-workspace-backup.json";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      showFeedback("Workspace backup exported. OAuth secrets are excluded.");
+    } catch (error) {
+      showFeedback(error instanceof Error ? error.message : "Could not export workspace.");
+    }
+  };
+
+  const handleImportWorkspaceBackup = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!confirm("Import and merge this JSON into OmniMind? Existing records stay intact. ChatGPT conversations.json is supported; for a ChatGPT ZIP export, extract conversations.json first. Imported skills and scheduled tasks remain disabled.")) return;
+    try {
+      const backup = JSON.parse(await file.text());
+      const response = await fetch("/api/workspace/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(backup),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Workspace import failed.");
+      await fetchMemories();
+      const count = result.imported || {};
+      showFeedback(`Backup merged: ${count.conversations || 0} chats, ${count.memories || 0} memories, ${count.projects || 0} projects, ${count.skills || 0} skills, ${count.scheduledTasks || 0} tasks.`);
+    } catch (error) {
+      showFeedback(error instanceof Error ? error.message : "Could not import workspace backup.");
+    }
+  };
+
   const handleImportMemoryFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -266,10 +307,15 @@ export const MemoryWorkspaceModal: React.FC<MemoryWorkspaceModalProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="quiet" onClick={handleExportMemories}>Export all</Button>
+            <Button size="sm" variant="quiet" onClick={handleExportMemories}>Export memories</Button>
+            <Button size="sm" variant="secondary" onClick={handleExportWorkspace}>Export workspace</Button>
             <label className="inline-flex cursor-pointer items-center rounded-xl border border-[var(--claude-border)] px-3 py-2 text-xs hover:bg-[var(--claude-surface)]">
               Import memory file
               <input type="file" accept=".json,.txt,.md" className="hidden" onChange={handleImportMemoryFile} />
+            </label>
+            <label className="inline-flex cursor-pointer items-center rounded-xl border border-[var(--claude-border)] px-3 py-2 text-xs hover:bg-[var(--claude-surface)]">
+              Import ChatGPT / workspace JSON
+              <input type="file" accept=".json,application/json" className="hidden" onChange={handleImportWorkspaceBackup} />
             </label>
             <Button
               size="sm"

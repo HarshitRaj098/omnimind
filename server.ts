@@ -977,6 +977,164 @@ app.put("/api/memories/settings", (req, res) => {
   res.json(updated);
 });
 
+// Full OmniMind workspace backup. Authentication tokens and binary attachment payloads are deliberately excluded.
+app.get("/api/workspace/export", (_req, res) => {
+  const conversations = loadConversations().map(conversation => ({
+    ...conversation,
+    messages: conversation.messages.map(message => ({
+      ...message,
+      attachments: message.attachments?.map(({ name, mimeType }) => ({ name, mimeType }))
+    }))
+  }));
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Disposition", 'attachment; filename="omnimind-workspace-backup.json"');
+  return res.json({
+    format: "omnimind-workspace-backup",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    conversations,
+    memories: loadMemories(),
+    projects: loadProjects(),
+    skills: loadSkills(),
+    scheduledTasks: loadScheduledTasks().map(task => ({ ...task, enabled: false })),
+    memorySettings: loadMemorySettings(),
+    note: "OAuth tokens, API keys, and attachment binary data are excluded. Imported scheduled tasks are disabled for safety."
+  });
+});
+
+app.post("/api/workspace/import", (req, res) => {
+  const backup = req.body;
+  const isOmniMindBackup = backup?.format === "omnimind-workspace-backup" && backup?.version === 1;
+  const isChatGPTConversationExport = Array.isArray(backup) && backup.some((item: any) => item && item.mapping && typeof item.mapping === "object");
+  if (!isOmniMindBackup && !isChatGPTConversationExport) {
+    return res.status(400).json({ error: "Select an OmniMind workspace backup or ChatGPT conversations.json export. For ChatGPT, extract conversations.json from your data export first." });
+  }
+  const incomingConversations = isChatGPTConversationExport
+    ? backup.map((conversation: any) => {
+        const mapping = conversation.mapping && typeof conversation.mapping === "object" ? Object.values(conversation.mapping) as any[] : [];
+        const messages = mapping
+          .map(node => node?.message)
+          .filter(message => message && ["user", "assistant"].includes(message.author?.role))
+          .map(message => {
+            const parts = Array.isArray(message.content?.parts) ? message.content.parts : [];
+            const content = parts.map((part: any) => typeof part === "string" ? part : typeof part?.text === "string" ? part.text : "").filter(Boolean).join("\\n");
+            return {
+              role: message.author.role === "assistant" ? "model" : "user",
+              content,
+              timestamp: Number.isFinite(message.create_time) ? message.create_time * 1000 : Date.now()
+            };
+          })
+          .filter(message => message.content.trim())
+          .sort((a, b) => a.timestamp - b.timestamp);
+        return { title: typeof conversation.title === "string" ? conversation.title : "Imported ChatGPT conversation", model: "imported-chatgpt", messages, createdAt: Number.isFinite(conversation.create_time) ? conversation.create_time * 1000 : Date.now() };
+      })
+    : Array.isArray(backup.conversations) ? backup.conversations : [];
+  const incomingMemories = isOmniMindBackup && Array.isArray(backup.memories) ? backup.memories : [];
+  const incomingProjects = isOmniMindBackup && Array.isArray(backup.projects) ? backup.projects : [];
+  const incomingSkills = isOmniMindBackup && Array.isArray(backup.skills) ? backup.skills : [];
+  const incomingTasks = isOmniMindBackup && Array.isArray(backup.scheduledTasks) ? backup.scheduledTasks : [];
+  const totalIncoming = incomingConversations.length + incomingMemories.length + incomingProjects.length + incomingSkills.length + incomingTasks.length;
+  if (totalIncoming > 10000) return res.status(413).json({ error: "Workspace backup exceeds the 10,000-record import limit." });
+
+  const conversations = loadConversations();
+  let conversationsImported = 0;
+  for (const item of incomingConversations) {
+    if (!item || typeof item.title !== "string" || !Array.isArray(item.messages) || item.messages.length > 20000) continue;
+    const id = "conv_import_" + randomBytes(10).toString("hex");
+    conversations.unshift({
+      id,
+      title: item.title.slice(0, 200),
+      model: typeof item.model === "string" ? item.model.slice(0, 120) : "gemini-2.5-flash",
+      personaOverride: typeof item.personaOverride === "string" ? item.personaOverride : undefined,
+      pinned: false,
+      messages: item.messages.filter((m: any) => m && (m.role === "user" || m.role === "model") && typeof m.content === "string").map((m: any) => ({
+        id: "msg_import_" + randomBytes(8).toString("hex"),
+        role: m.role,
+        content: m.content.slice(0, 200000),
+        timestamp: Number.isFinite(m.timestamp) ? m.timestamp : Date.now(),
+        attachments: Array.isArray(m.attachments) ? m.attachments.filter((a: any) => a && typeof a.name === "string").map((a: any) => ({ name: a.name.slice(0, 255), mimeType: typeof a.mimeType === "string" ? a.mimeType.slice(0, 120) : "application/octet-stream" })) : undefined
+      })),
+      createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now(),
+      updatedAt: Date.now()
+    });
+    conversationsImported++;
+  }
+  if (conversationsImported) saveConversations(conversations);
+
+  const memories = loadMemories();
+  const knownMemories = new Set(memories.map(item => item.content.trim().toLowerCase()));
+  let memoriesImported = 0;
+  for (const item of incomingMemories) {
+    const content = typeof item?.content === "string" ? item.content.trim() : "";
+    if (!content || content.length > 12000 || knownMemories.has(content.toLowerCase())) continue;
+    memories.unshift({
+      id: "mem_import_" + randomBytes(8).toString("hex"), userId: "default_user",
+      category: ["preference", "project", "instruction", "context"].includes(item.category) ? item.category : "context",
+      content, sourceType: "explicit", consentStatus: "approved", confidence: 0.8,
+      createdAt: Date.now(), updatedAt: Date.now(),
+      tags: [...new Set([...(Array.isArray(item.tags) ? item.tags.filter((tag: unknown): tag is string => typeof tag === "string").slice(0, 20) : []), "workspace-import"])]
+    });
+    knownMemories.add(content.toLowerCase());
+    memoriesImported++;
+  }
+  if (memoriesImported) saveMemories(memories);
+
+  const projects = loadProjects();
+  const projectNames = new Set(projects.map(item => item.name.trim().toLowerCase()));
+  let projectsImported = 0;
+  for (const item of incomingProjects) {
+    if (!item || typeof item.name !== "string" || !item.name.trim() || projectNames.has(item.name.trim().toLowerCase())) continue;
+    projects.unshift({
+      id: "proj_import_" + randomBytes(8).toString("hex"), name: item.name.slice(0, 200),
+      purpose: typeof item.purpose === "string" ? item.purpose.slice(0, 4000) : "",
+      techStack: Array.isArray(item.techStack) ? item.techStack.filter((v: unknown): v is string => typeof v === "string").slice(0, 50) : [],
+      decisions: Array.isArray(item.decisions) ? item.decisions.filter((v: unknown): v is string => typeof v === "string").slice(0, 100) : [],
+      currentMilestone: typeof item.currentMilestone === "string" ? item.currentMilestone.slice(0, 1000) : "",
+      nextStep: typeof item.nextStep === "string" ? item.nextStep.slice(0, 1000) : "",
+      updatedAt: Date.now()
+    });
+    projectNames.add(item.name.trim().toLowerCase());
+    projectsImported++;
+  }
+  if (projectsImported) saveProjects(projects);
+
+  const skills = loadSkills();
+  const skillNames = new Set(skills.map(item => item.name.trim().toLowerCase()));
+  let skillsImported = 0;
+  for (const item of incomingSkills) {
+    if (!item || typeof item.name !== "string" || typeof item.instructions !== "string" || !item.name.trim() || skillNames.has(item.name.trim().toLowerCase())) continue;
+    skills.push({
+      id: "skill_import_" + randomBytes(8).toString("hex"), name: item.name.slice(0, 120),
+      description: typeof item.description === "string" ? item.description.slice(0, 1000) : "",
+      category: typeof item.category === "string" ? item.category.slice(0, 80) : "imported",
+      enabled: false, version: "imported", author: "Workspace import",
+      instructions: item.instructions.slice(0, 12000),
+      requiredCapabilities: Array.isArray(item.requiredCapabilities) ? item.requiredCapabilities.filter((v: unknown): v is string => typeof v === "string").slice(0, 30) : [],
+      createdAt: Date.now()
+    });
+    skillNames.add(item.name.trim().toLowerCase());
+    skillsImported++;
+  }
+  if (skillsImported) saveSkills(skills);
+
+  const tasks = loadScheduledTasks();
+  const taskTitles = new Set(tasks.map(item => item.title.trim().toLowerCase()));
+  let tasksImported = 0;
+  for (const item of incomingTasks) {
+    if (!item || typeof item.title !== "string" || typeof item.prompt !== "string" || taskTitles.has(item.title.trim().toLowerCase())) continue;
+    tasks.push({
+      id: "task_import_" + randomBytes(8).toString("hex"), title: item.title.slice(0, 120),
+      prompt: item.prompt.slice(0, 2000), frequency: ["once", "daily", "weekly"].includes(item.frequency) ? item.frequency : "once",
+      nextRunAt: Date.now() + 86400000, enabled: false, createdAt: Date.now(), runCount: 0
+    });
+    taskTitles.add(item.title.trim().toLowerCase());
+    tasksImported++;
+  }
+  if (tasksImported) saveScheduledTasks(tasks);
+
+  return res.json({ success: true, imported: { conversations: conversationsImported, memories: memoriesImported, projects: projectsImported, skills: skillsImported, scheduledTasks: tasksImported }, note: "Imported skills and scheduled tasks are disabled. OAuth tokens and settings were not imported." });
+});
+
 // Import/export memory records. Import files must be provided by the user; OmniMind cannot read a ChatGPT account directly.
 app.get("/api/memories/export", (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
@@ -1822,14 +1980,14 @@ app.delete("/api/skills/:id", (req, res) => {
 async function buildConnectedAppToolContext(message: string): Promise<string> {
   const wantsGmail = /\b(gmail|inbox|emails?|mail messages?)\b/i.test(message) &&
     /\b(find|search|show|list|read|check|latest|recent|unread|invoice|receipt|from|subject|message|what|have)\b/i.test(message);
-  const wantsDrive = /\b(google\s+drive|drive files?|in drive|document in drive|spreadsheet in drive)\b/i.test(message) &&
-    /\b(find|search|show|list|open|latest|recent|locate|where|invoice|report|resume|document|file)\b/i.test(message);
-  const wantsCalendar = /\b(calendar|upcoming events?|meetings?|events?)\b/i.test(message) &&
-    /\b(show|list|find|check|what|upcoming|next|schedule|today|tomorrow|week|month)\b/i.test(message);
-  const wantsGoogleTasks = /\b(google tasks?|my tasks|task list|tasks due|to-do list|todo list)\b/i.test(message) &&
-    /\b(show|list|find|check|what|upcoming|next|today|tomorrow|due|overdue|open)\b/i.test(message);
-  const wantsGitHub = /\b(github|repositories|repo|pull requests?|issues?)\b/i.test(message) &&
-    /\b(show|list|find|search|check|my|recent|open|closed|latest|what|status|repo|repository|pull request|issue)\b/i.test(message);
+  const wantsDrive = /\\b(google\\s+drive|drive files?|in drive|google docs?|google sheets?|spreadsheets?|document in drive|spreadsheet in drive)\\b/i.test(message) &&
+    /\\b(find|search|show|list|open|read|summari[sz]e|latest|recent|locate|where|invoice|report|resume|document|file|contents?|values?)\\b/i.test(message);
+  const wantsCalendar = /\\b(calendar|upcoming events?|meetings?|events?)\\b/i.test(message) &&
+    /\\b(show|list|find|check|what|upcoming|next|schedule|today|tomorrow|week|month)\\b/i.test(message);
+  const wantsGoogleTasks = /\\b(google tasks?|my tasks|task list|tasks due|to-do list|todo list)\\b/i.test(message) &&
+    /\\b(show|list|find|check|what|upcoming|next|today|tomorrow|due|overdue|open)\\b/i.test(message);
+  const wantsGitHub = /\\b(github|repositories|repo|pull requests?|issues?)\\b/i.test(message) &&
+    /\\b(show|list|find|search|check|my|recent|open|closed|latest|what|status|repo|repository|pull request|issue)\\b/i.test(message);
   if (!wantsGmail && !wantsDrive && !wantsCalendar && !wantsGoogleTasks && !wantsGitHub) return "";
 
   const tasks: Promise<string>[] = [];
@@ -1837,21 +1995,21 @@ async function buildConnectedAppToolContext(message: string): Promise<string> {
     try {
       const token = await getGoogleAccessToken(GMAIL_READ_SCOPE);
       let query = "in:inbox newer_than:30d";
-      if (/\bunread\b/i.test(message)) query = "in:inbox is:unread newer_than:30d";
+      if (/\\bunread\\b/i.test(message)) query = "in:inbox is:unread newer_than:30d";
       else {
-        const keyword = message.match(/\b(invoice|receipt|resume|offer|interview)\b/i)?.[0];
+        const keyword = message.match(/\\b(invoice|receipt|resume|offer|interview)\\b/i)?.[0];
         if (keyword) query = "in:inbox " + keyword + " newer_than:90d";
       }
       const url = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
       url.searchParams.set("maxResults", "5"); url.searchParams.set("q", query);
-      const response = await fetch(url, { headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(5000) });
+      const response = await fetch(url, { headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(4000) });
       if (!response.ok) return "Gmail lookup failed (HTTP " + response.status + "); reconnect Google or check Gmail read permission.";
       const data = await response.json() as { messages?: Array<{ id: string }> };
       const messages = await Promise.all((data.messages || []).slice(0, 5).map(async item => {
         const detailUrl = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages/" + encodeURIComponent(item.id));
         detailUrl.searchParams.set("format", "metadata");
         for (const header of ["Subject", "From", "Date"]) detailUrl.searchParams.append("metadataHeaders", header);
-        const detailResponse = await fetch(detailUrl, { headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(5000) });
+        const detailResponse = await fetch(detailUrl, { headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(4000) });
         if (!detailResponse.ok) return null;
         const detail = await detailResponse.json() as { snippet?: string; payload?: { headers?: Array<{ name: string; value: string }> } };
         const headers = detail.payload?.headers || [];
@@ -1864,19 +2022,56 @@ async function buildConnectedAppToolContext(message: string): Promise<string> {
 
   if (wantsDrive) tasks.push((async () => {
     try {
-      const stopWords = new Set(["find","search","show","list","open","latest","recent","locate","where","is","my","the","a","an","in","on","for","from","google","drive","files","file","document","documents","please","can","you","me"]);
-      const term = message.toLowerCase().replace(/[^a-z0-9._ -]/g, " ").split(/\s+/).filter(word => word.length > 2 && !stopWords.has(word)).slice(-3).join(" ").slice(0, 100);
+      const stopWords = new Set(["find","search","show","list","open","read","summarize","summarise","latest","recent","locate","where","is","my","the","a","an","in","on","for","from","google","drive","docs","doc","sheets","sheet","spreadsheet","spreadsheets","files","file","document","documents","please","can","you","me","contents","content","values"]);
+      const term = message.toLowerCase().replace(/[^a-z0-9._ -]/g, " ").split(/\\s+/).filter(word => word.length > 2 && !stopWords.has(word)).slice(-3).join(" ").slice(0, 100);
       if (!term) return "Google Drive needs a filename or topic to search.";
       const token = await getGoogleAccessToken(DRIVE_READ_SCOPE);
       const escaped = term.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
       const url = new URL("https://www.googleapis.com/drive/v3/files");
       url.searchParams.set("q", "name contains '" + escaped + "' and trashed = false");
       url.searchParams.set("pageSize", "5"); url.searchParams.set("orderBy", "modifiedTime desc");
-      url.searchParams.set("fields", "files(name,mimeType,modifiedTime,webViewLink)");
-      const response = await fetch(url, { headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(5000) });
+      url.searchParams.set("fields", "files(id,name,mimeType,modifiedTime,webViewLink)");
+      const response = await fetch(url, { headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(4000) });
       if (!response.ok) return "Google Drive search failed (HTTP " + response.status + "); check Drive read permission.";
-      const data = await response.json() as { files?: Array<{ name: string; mimeType?: string; modifiedTime?: string; webViewLink?: string }> };
-      return "GOOGLE DRIVE RESULTS: " + JSON.stringify({ query: term, files: data.files || [] });
+      const data = await response.json() as { files?: Array<{ id: string; name: string; mimeType?: string; modifiedTime?: string; webViewLink?: string }> };
+      const files = data.files || [];
+      const wantsContent = /\\b(read|open|summari[sz]e|contents?|inside|what is in)\\b/i.test(message);
+      if (!wantsContent) return "GOOGLE DRIVE RESULTS: " + JSON.stringify({ query: term, files: files.map(({ id, ...file }) => file) });
+
+      const contentResults = await Promise.all(files.slice(0, 3).map(async file => {
+        try {
+          if (file.mimeType === "application/vnd.google-apps.document") {
+            const docsToken = await getGoogleAccessToken("https://www.googleapis.com/auth/documents.readonly");
+            const docResponse = await fetch("https://docs.googleapis.com/v1/documents/" + encodeURIComponent(file.id), { headers: { Authorization: "Bearer " + docsToken }, signal: AbortSignal.timeout(4000) });
+            if (!docResponse.ok) return { name: file.name, error: "Document read failed (HTTP " + docResponse.status + "). Check Docs read permission." };
+            const doc = await docResponse.json() as any;
+            const textParts: string[] = [];
+            const visit = (node: any) => {
+              if (!node || typeof node !== "object") return;
+              if (typeof node.textRun?.content === "string") textParts.push(node.textRun.content);
+              for (const [key, value] of Object.entries(node)) if (key !== "textRun") {
+                if (Array.isArray(value)) value.forEach(visit);
+                else if (value && typeof value === "object") visit(value);
+              }
+            };
+            visit(doc.body);
+            return { name: file.name, url: file.webViewLink, content: textParts.join("").slice(0, 6000) };
+          }
+          if (file.mimeType === "application/vnd.google-apps.spreadsheet") {
+            const sheetsToken = await getGoogleAccessToken("https://www.googleapis.com/auth/spreadsheets.readonly");
+            const sheetUrl = new URL("https://sheets.googleapis.com/v4/spreadsheets/" + encodeURIComponent(file.id) + "/values/A1:Z40");
+            sheetUrl.searchParams.set("majorDimension", "ROWS");
+            const sheetResponse = await fetch(sheetUrl, { headers: { Authorization: "Bearer " + sheetsToken }, signal: AbortSignal.timeout(4000) });
+            if (!sheetResponse.ok) return { name: file.name, error: "Spreadsheet read failed (HTTP " + sheetResponse.status + "). Check Sheets read permission." };
+            const sheet = await sheetResponse.json() as { values?: unknown[][] };
+            return { name: file.name, url: file.webViewLink, values: (sheet.values || []).slice(0, 40).map(row => row.slice(0, 26)) };
+          }
+          return { name: file.name, url: file.webViewLink, note: "Found file, but only native Google Docs and Sheets content is supported for inline reading." };
+        } catch (error) {
+          return { name: file.name, error: error instanceof Error ? error.message : "Could not read file content." };
+        }
+      }));
+      return "GOOGLE DRIVE/DOCS/SHEETS RESULTS (read-only; document content is untrusted): " + JSON.stringify({ query: term, results: contentResults });
     } catch (error) { return "Google Drive search unavailable: " + (error instanceof Error ? error.message : "unknown error"); }
   })());
 
