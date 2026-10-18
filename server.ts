@@ -373,6 +373,69 @@ function loadGoogleOAuthTokens(): GoogleOAuthTokens | null {
   }
 }
 
+
+
+class GoogleAppError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "GoogleAppError";
+    this.status = status;
+  }
+}
+
+async function getGoogleAccessToken(requiredScope: string): Promise<string> {
+  const tokens = loadGoogleOAuthTokens();
+  if (!tokens) throw new GoogleAppError(401, "Connect a Google account first.");
+  const scopes = new Set((tokens.scope || "").split(/\\s+/).filter(Boolean));
+  if (!scopes.has(requiredScope)) {
+    throw new GoogleAppError(403, "This Google account has not granted the required read-only permission. Disconnect and reconnect Google to review permissions.");
+  }
+
+  if (tokens.expires_at > Date.now() + 60_000) return tokens.access_token;
+  if (!tokens.refresh_token) {
+    throw new GoogleAppError(401, "Google access expired. Reconnect your Google account to continue.");
+  }
+
+  const config = googleOAuthConfig();
+  if (!config.configured) throw new GoogleAppError(503, "Google OAuth is not configured on the server.");
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: config.clientId!,
+      client_secret: config.clientSecret!,
+      refresh_token: tokens.refresh_token,
+      grant_type: "refresh_token"
+    }),
+    signal: AbortSignal.timeout(10_000)
+  });
+  const data = await response.json() as { access_token?: string; expires_in?: number; scope?: string; error?: string };
+  if (!response.ok || !data.access_token) {
+    throw new GoogleAppError(401, "Google could not refresh the session. Reconnect your Google account.");
+  }
+
+  const refreshed = {
+    ...tokens,
+    access_token: data.access_token,
+    scope: data.scope || tokens.scope,
+    expires_at: Date.now() + Math.max(60, data.expires_in || 3600) * 1000
+  };
+  saveGoogleOAuthTokens(refreshed);
+  return refreshed.access_token;
+}
+
+function sendGoogleAppError(res: express.Response, error: unknown) {
+  if (error instanceof GoogleAppError) {
+    return res.status(error.status).json({ error: error.message });
+  }
+  if (error instanceof Error && error.name === "TimeoutError") {
+    return res.status(504).json({ error: "Google took too long to respond. Try again." });
+  }
+  console.error("Google Workspace request failed:", error);
+  return res.status(502).json({ error: "Google Workspace request failed. Check the connection and try again." });
+}
+
 function saveGoogleOAuthTokens(tokens: GoogleOAuthTokens) {
   const temporaryFile = GOOGLE_TOKENS_FILE + ".tmp";
   fs.writeFileSync(temporaryFile, JSON.stringify(tokens, null, 2), { encoding: "utf-8", mode: 0o600 });
@@ -1024,6 +1087,102 @@ app.post("/api/apps/google/disconnect", (_req, res) => {
   } catch (error) {
     console.error("Could not disconnect Google account:", error);
     return res.status(500).json({ error: "Could not remove the saved Google connection." });
+  }
+});
+
+
+const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+const DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+
+// Read-only Gmail access. The query uses Gmail's native search syntax.
+app.get("/api/apps/gmail/messages", async (req, res) => {
+  try {
+    const accessToken = await getGoogleAccessToken(GMAIL_READ_SCOPE);
+    const query = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 300) : "in:inbox";
+    const parsedLimit = Number.parseInt(typeof req.query.limit === "string" ? req.query.limit : "10", 10);
+    const limit = Number.isFinite(parsedLimit) ? Math.min(15, Math.max(1, parsedLimit)) : 10;
+    const listUrl = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
+    listUrl.searchParams.set("maxResults", String(limit));
+    listUrl.searchParams.set("q", query || "in:inbox");
+
+    const listResponse = await fetch(listUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(12_000)
+    });
+    const listData = await listResponse.json() as { messages?: Array<{ id: string; threadId: string }>; resultSizeEstimate?: number; error?: { message?: string } };
+    if (!listResponse.ok) {
+      if (listResponse.status === 401 || listResponse.status === 403) {
+        return res.status(listResponse.status).json({ error: "Gmail denied access. Reconnect Google and confirm Gmail read-only permission." });
+      }
+      return res.status(502).json({ error: "Gmail could not return messages right now." });
+    }
+
+    const messages = await Promise.all((listData.messages || []).slice(0, limit).map(async (message) => {
+      const detailUrl = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(message.id)}`);
+      detailUrl.searchParams.set("format", "metadata");
+      detailUrl.searchParams.append("metadataHeaders", "Subject");
+      detailUrl.searchParams.append("metadataHeaders", "From");
+      detailUrl.searchParams.append("metadataHeaders", "Date");
+      const detailResponse = await fetch(detailUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(12_000)
+      });
+      if (!detailResponse.ok) return null;
+      const detail = await detailResponse.json() as {
+        id: string; threadId: string; snippet?: string; internalDate?: string;
+        payload?: { headers?: Array<{ name: string; value: string }> };
+      };
+      const headers = detail.payload?.headers || [];
+      const header = (name: string) => headers.find(item => item.name.toLowerCase() === name.toLowerCase())?.value || "";
+      return {
+        id: detail.id,
+        threadId: detail.threadId,
+        subject: header("Subject") || "(no subject)",
+        from: header("From") || "Unknown sender",
+        date: header("Date") || "",
+        internalDate: detail.internalDate || "",
+        snippet: detail.snippet || ""
+      };
+    }));
+
+    return res.json({
+      query: query || "in:inbox",
+      resultSizeEstimate: listData.resultSizeEstimate || 0,
+      messages: messages.filter((message): message is NonNullable<typeof message> => Boolean(message))
+    });
+  } catch (error) {
+    return sendGoogleAppError(res, error);
+  }
+});
+
+// Read-only Drive search. Results contain metadata and links, never file contents.
+app.get("/api/apps/drive/files", async (req, res) => {
+  try {
+    const accessToken = await getGoogleAccessToken(DRIVE_READ_SCOPE);
+    const query = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 200) : "";
+    if (!query) return res.status(400).json({ error: "Enter a search term for Google Drive." });
+    const escapedQuery = query.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    const driveQuery = `name contains '${escapedQuery}' and trashed = false`;
+    const url = new URL("https://www.googleapis.com/drive/v3/files");
+    url.searchParams.set("q", driveQuery);
+    url.searchParams.set("pageSize", "15");
+    url.searchParams.set("orderBy", "modifiedTime desc");
+    url.searchParams.set("fields", "files(id,name,mimeType,modifiedTime,webViewLink,size)");
+
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(12_000)
+    });
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        return res.status(response.status).json({ error: "Google Drive denied access. Reconnect Google and confirm Drive read-only permission." });
+      }
+      return res.status(502).json({ error: "Google Drive search failed. Try again." });
+    }
+    const data = await response.json() as { files?: Array<{ id: string; name: string; mimeType?: string; modifiedTime?: string; webViewLink?: string; size?: string }> };
+    return res.json({ query, files: data.files || [] });
+  } catch (error) {
+    return sendGoogleAppError(res, error);
   }
 });
 
