@@ -22,6 +22,18 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
   const [runAt, setRunAt] = useState(() => toLocalInput(new Date(Date.now() + 60 * 60 * 1000)));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
+    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
+  );
+
+  const enableNotifications = async () => {
+    if (!("Notification" in window)) {
+      setNotificationPermission("unsupported");
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    setNotificationPermission(permission);
+  };
 
   const loadTasks = useCallback(async () => {
     try {
@@ -77,10 +89,28 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Scheduled Tasks"
-      description="Persistent reminders and read-only connected-app checks. Tasks run while the OmniMind server is online."
+      description="Persistent reminders and read-only connected-app checks. The server and this app tab must stay open for scheduled runs and browser alerts."
       icon={<AppIcon name="calendar" size={18} />} maxWidth="2xl"
       footer={<Button variant="secondary" onClick={onClose}>Close</Button>}>
       <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--claude-border)] p-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium">Task notifications</div>
+            <p className="mt-1 text-xs text-[var(--claude-text-muted)]">
+              {notificationPermission === "granted"
+                ? "Browser notifications enabled while this app is open."
+                : notificationPermission === "denied"
+                  ? "Notifications are blocked in browser settings."
+                  : notificationPermission === "unsupported"
+                    ? "This browser does not support notifications."
+                    : "Get a browser alert when a scheduled task finishes or fails."}
+            </p>
+          </div>
+          <Button size="sm" variant="secondary" onClick={() => void enableNotifications()}
+            disabled={notificationPermission === "granted" || notificationPermission === "denied" || notificationPermission === "unsupported"}>
+            {notificationPermission === "granted" ? "Enabled" : notificationPermission === "denied" ? "Blocked" : "Enable notifications"}
+          </Button>
+        </div>
         {error && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-500">{error}</div>}
         <form onSubmit={createTask} className="space-y-3 rounded-xl border border-[var(--claude-border)] p-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
