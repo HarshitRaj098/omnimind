@@ -3853,7 +3853,7 @@ app.post("/api/chat/stream", async (req, res) => {
           pendingChatWrites.set(id, { id, type, payload, summary, details, status: "pending", createdAt: Date.now() });
           const pendingAction = { id, type, summary, details, status: "pending" as const };
           pendingActionsForMessage.push(pendingAction);
-          res.write("data: " + JSON.stringify({ actionConfirmation: pendingAction }) + "\\n\\n");
+          res.write("data: " + JSON.stringify({ actionConfirmation: pendingAction }) + "\n\n");
           functionResponses.push({ functionResponse: { name: call.name, response: { status: "awaiting_confirmation", requiresConfirmation: true, message: "The action has been prepared and shown to the user. Do not claim it was executed. Wait for explicit confirmation." } } });
           continue;
         }
