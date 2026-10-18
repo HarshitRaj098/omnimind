@@ -634,7 +634,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
           <div>
             <h3 className="text-xs font-semibold text-[var(--claude-text)]">Google account</h3>
             <p className="mt-1 text-[11px] text-[var(--claude-text-muted)]">
-              {googleAccountEmail ? `Signed in as ${googleAccountEmail}` : googleOAuthConfigured ? "Sign in to Google and approve the requested Gmail and Workspace permissions." : "Google sign-in is not configured. Add the OAuth client ID, client secret, and public app URL to the server environment."}
+              {googleAccountEmail ? `Signed in as ${googleAccountEmail}` : googleOAuthConfigured ? "Sign in to Google and approve the requested Gmail and Workspace permissions." : "Google sign-in needs a client ID and an authorized callback URL. The hosted app URL is detected automatically when possible; a client secret is optional."}
             </p>
           </div>
           {googleAccountEmail ? (
@@ -655,8 +655,8 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
             {googleOAuthDiagnostics.connected && (googleOAuthDiagnostics.missingScopes?.length ?? 0) > 0 && (
               <div className="text-amber-500">Some permissions are missing. Choose account / update permissions to grant them.</div>
             )}
-            {!googleOAuthDiagnostics.configured && (
-              <div className="text-[var(--claude-text-muted)]">In Google Cloud Console, add the exact redirect URI above under OAuth Client → Authorized redirect URIs. The deployment URL must match APP_URL.</div>
+            {googleOAuthDiagnostics.callbackUri && (
+              <div className="text-[var(--claude-text-muted)]">For this custom OAuth flow, the exact callback above must be listed under your Google OAuth client's Authorized redirect URIs. Enabling Gmail in AI Studio does not automatically connect this separate OmniMind OAuth flow.</div>
             )}
           </div>
         )}
