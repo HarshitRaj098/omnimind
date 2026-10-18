@@ -1070,87 +1070,143 @@ app.post("/api/share/:shareId/revoke", (req, res) => {
 });
 
 // Persistent Memory Endpoints
+const MEMORY_CATEGORIES = new Set<Memory["category"]>(["preference", "project", "instruction", "context"]);
+const MEMORY_CONSENT_STATES = new Set<Memory["consentStatus"]>(["approved", "pending"]);
+const MEMORY_SOURCE_TYPES = new Set<Memory["sourceType"]>(["explicit", "inferred"]);
+const MAX_MEMORY_CONTENT_LENGTH = 4000;
+const MAX_MEMORY_TAGS = 30;
+const MAX_MEMORY_TAG_LENGTH = 64;
+
+function validateMemoryTags(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length > MAX_MEMORY_TAGS) return null;
+  if (value.some(tag => typeof tag !== "string" || tag.trim().length > MAX_MEMORY_TAG_LENGTH)) return null;
+  return Array.from(new Set(value.map(tag => tag.trim()).filter(Boolean)));
+}
+
 app.get("/api/memories", (req, res) => {
   const { q, category } = req.query;
-  let memories = loadMemories();
-
-  if (category && category !== "all") {
-    memories = memories.filter(m => m.category === category);
+  if (category && category !== "all" && (typeof category !== "string" || !MEMORY_CATEGORIES.has(category as Memory["category"]))) {
+    return res.status(400).json({ error: "Invalid memory category." });
   }
-
+  let memories = loadMemories();
+  if (category && category !== "all") memories = memories.filter(m => m.category === category);
   if (q && typeof q === "string") {
-    const query = q.toLowerCase();
-    memories = memories.filter(m => 
-      m.content.toLowerCase().includes(query) || 
+    const query = q.trim().slice(0, 200).toLowerCase();
+    memories = memories.filter(m =>
+      m.content.toLowerCase().includes(query) ||
       (m.tags && m.tags.some(t => t.toLowerCase().includes(query)))
     );
   }
-
-  res.json(memories.sort((a, b) => b.updatedAt - a.updatedAt));
+  return res.json(memories.sort((a, b) => b.updatedAt - a.updatedAt));
 });
 
 app.post("/api/memories", (req, res) => {
-  const { category = "preference", content, tags = [], sourceType = "explicit", consentStatus = "approved" } = req.body;
-  if (!content || !content.trim()) {
+  const { category = "preference", content, tags = [], sourceType = "explicit", consentStatus = "approved" } = req.body || {};
+  if (typeof content !== "string" || !content.trim()) {
     return res.status(400).json({ error: "Memory content is required." });
   }
+  if (content.trim().length > MAX_MEMORY_CONTENT_LENGTH) {
+    return res.status(413).json({ error: `Memory content cannot exceed ${MAX_MEMORY_CONTENT_LENGTH} characters.` });
+  }
+  if (!MEMORY_CATEGORIES.has(category)) return res.status(400).json({ error: "Invalid memory category." });
+  if (!MEMORY_SOURCE_TYPES.has(sourceType)) return res.status(400).json({ error: "Invalid memory source type." });
+  if (!MEMORY_CONSENT_STATES.has(consentStatus)) return res.status(400).json({ error: "Invalid memory consent status." });
+  const normalizedTags = validateMemoryTags(tags);
+  if (!normalizedTags) return res.status(400).json({ error: `Tags must be an array of at most ${MAX_MEMORY_TAGS} strings, each no longer than ${MAX_MEMORY_TAG_LENGTH} characters.` });
 
   const memories = loadMemories();
+  const now = Date.now();
   const newMemory: Memory = {
-    id: "mem_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+    id: "mem_" + now + "_" + Math.random().toString(36).substring(2, 6),
     userId: "default_user",
     category,
     content: content.trim(),
     sourceType,
     consentStatus,
     confidence: 1.0,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    tags: Array.isArray(tags) ? tags : []
+    createdAt: now,
+    updatedAt: now,
+    tags: normalizedTags
   };
-
   memories.unshift(newMemory);
   saveMemories(memories);
-  res.json(newMemory);
+  return res.status(201).json(newMemory);
 });
 
 app.put("/api/memories/:id", (req, res) => {
   const memories = loadMemories();
   const memory = memories.find(m => m.id === req.params.id);
-  if (!memory) return res.status(404).json({ error: "Memory not found" });
+  if (!memory) return res.status(404).json({ error: "Memory not found." });
 
-  const { content, category, consentStatus, tags } = req.body;
+  const { content, category, consentStatus, tags } = req.body || {};
+  if (content !== undefined && (typeof content !== "string" || !content.trim())) {
+    return res.status(400).json({ error: "Memory content must be a non-empty string." });
+  }
+  if (typeof content === "string" && content.trim().length > MAX_MEMORY_CONTENT_LENGTH) {
+    return res.status(413).json({ error: `Memory content cannot exceed ${MAX_MEMORY_CONTENT_LENGTH} characters.` });
+  }
+  if (category !== undefined && !MEMORY_CATEGORIES.has(category)) return res.status(400).json({ error: "Invalid memory category." });
+  if (consentStatus !== undefined && !MEMORY_CONSENT_STATES.has(consentStatus)) return res.status(400).json({ error: "Invalid memory consent status." });
+  let normalizedTags: string[] | undefined;
+  if (tags !== undefined) {
+    const validatedTags = validateMemoryTags(tags);
+    if (!validatedTags) {
+      return res.status(400).json({ error: `Tags must be an array of at most ${MAX_MEMORY_TAGS} strings, each no longer than ${MAX_MEMORY_TAG_LENGTH} characters.` });
+    }
+    normalizedTags = validatedTags;
+  }
+
   if (content !== undefined) memory.content = content.trim();
   if (category !== undefined) memory.category = category;
   if (consentStatus !== undefined) memory.consentStatus = consentStatus;
-  if (tags !== undefined) memory.tags = tags;
+  if (normalizedTags !== undefined) memory.tags = normalizedTags;
   memory.updatedAt = Date.now();
-
   saveMemories(memories);
-  res.json(memory);
+  return res.json(memory);
 });
 
 app.delete("/api/memories/:id", (req, res) => {
-  let memories = loadMemories();
-  memories = memories.filter(m => m.id !== req.params.id);
-  saveMemories(memories);
-  res.json({ success: true });
+  const memories = loadMemories();
+  const filtered = memories.filter(m => m.id !== req.params.id);
+  if (filtered.length === memories.length) return res.status(404).json({ error: "Memory not found." });
+  saveMemories(filtered);
+  return res.json({ success: true });
 });
 
-app.post("/api/memories/clear", (req, res) => {
+app.post("/api/memories/clear", (_req, res) => {
   saveMemories([]);
-  res.json({ success: true, count: 0 });
+  return res.json({ success: true, count: 0 });
 });
 
-app.get("/api/memories/settings", (req, res) => {
-  res.json(loadMemorySettings());
+app.get("/api/memories/settings", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(loadMemorySettings());
 });
 
 app.put("/api/memories/settings", (req, res) => {
+  const input = req.body || {};
   const current = loadMemorySettings();
-  const updated = { ...current, ...req.body };
+  const updated: MemorySettings = { ...current };
+  if (input.enabled !== undefined) {
+    if (typeof input.enabled !== "boolean") return res.status(400).json({ error: "enabled must be a boolean." });
+    updated.enabled = input.enabled;
+  }
+  if (input.autoSuggest !== undefined) {
+    if (typeof input.autoSuggest !== "boolean") return res.status(400).json({ error: "autoSuggest must be a boolean." });
+    updated.autoSuggest = input.autoSuggest;
+  }
+  if (input.requireConsent !== undefined) {
+    if (typeof input.requireConsent !== "boolean") return res.status(400).json({ error: "requireConsent must be a boolean." });
+    updated.requireConsent = input.requireConsent;
+  }
+  if (input.retentionDays !== undefined) {
+    if (typeof input.retentionDays !== "number" || !Number.isInteger(input.retentionDays) || input.retentionDays < 1 || input.retentionDays > 3650) {
+      return res.status(400).json({ error: "retentionDays must be an integer between 1 and 3650." });
+    }
+    updated.retentionDays = input.retentionDays;
+  }
   saveMemorySettings(updated);
-  res.json(updated);
+  return res.json(updated);
 });
 
 // Full OmniMind workspace backup. Authentication tokens and binary attachment payloads are deliberately excluded.
