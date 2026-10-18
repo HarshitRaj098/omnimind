@@ -413,7 +413,7 @@ async function getGoogleAccessToken(requiredScope: string): Promise<string> {
   if (!tokens) throw new GoogleAppError(401, "Connect a Google account first.");
   const scopes = new Set((tokens.scope || "").split(/\s+/).filter(Boolean));
   if (!scopes.has(requiredScope)) {
-    throw new GoogleAppError(403, "This Google account has not granted the required read-only permission. Disconnect and reconnect Google to review permissions.");
+    throw new GoogleAppError(403, "This Google account has not granted the required permission. Disconnect and reconnect Google to review permissions.");
   }
 
   if (tokens.expires_at > Date.now() + 60_000) return tokens.access_token;
