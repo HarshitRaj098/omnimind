@@ -13,6 +13,17 @@ interface ScheduledTask {
   runCount: number; running?: boolean; runs?: ScheduledTaskRun[]; timeZone?: string;
 }
 interface ScheduledTasksModalProps { isOpen: boolean; onClose: () => void; }
+type TaskNotificationPreferences = { success: boolean; failure: boolean };
+const TASK_NOTIFICATION_PREFS_KEY = "omnimind:task-notification-preferences";
+const readTaskNotificationPreferences = (): TaskNotificationPreferences => {
+  try {
+    const raw = typeof window !== "undefined" ? window.localStorage.getItem(TASK_NOTIFICATION_PREFS_KEY) : null;
+    const parsed = raw ? JSON.parse(raw) as Partial<TaskNotificationPreferences> : {};
+    return { success: parsed.success !== false, failure: parsed.failure !== false };
+  } catch {
+    return { success: true, failure: true };
+  }
+};
 
 const toLocalInput = (date: Date) => {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -35,6 +46,15 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
   );
+  const [notificationPreferences, setNotificationPreferences] = useState<TaskNotificationPreferences>(readTaskNotificationPreferences);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(TASK_NOTIFICATION_PREFS_KEY, JSON.stringify(notificationPreferences));
+    } catch {
+      // Notification preferences remain usable for this session if storage is unavailable.
+    }
+  }, [notificationPreferences]);
 
   const exportTasks = async () => {
     setError(null);
@@ -269,6 +289,16 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
             disabled={notificationPermission === "granted" || notificationPermission === "denied" || notificationPermission === "unsupported"}>
             {notificationPermission === "granted" ? "Enabled" : notificationPermission === "denied" ? "Blocked" : "Enable notifications"}
           </Button>
+        </div>
+        <div className="flex flex-wrap gap-4 rounded-xl border border-[var(--claude-border)] px-3 py-2">
+          <label className="flex items-center gap-2 text-xs text-[var(--claude-text-muted)]">
+            <input type="checkbox" checked={notificationPreferences.success} onChange={event => setNotificationPreferences(prev => ({ ...prev, success: event.target.checked }))} />
+            Notify on success
+          </label>
+          <label className="flex items-center gap-2 text-xs text-[var(--claude-text-muted)]">
+            <input type="checkbox" checked={notificationPreferences.failure} onChange={event => setNotificationPreferences(prev => ({ ...prev, failure: event.target.checked }))} />
+            Notify on failure
+          </label>
         </div>
         {error && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-500">{error}</div>}
         <form onSubmit={createTask} className="space-y-3 rounded-xl border border-[var(--claude-border)] p-4">
