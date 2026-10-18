@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+
+data/google_oauth_tokens.json
+data/google_oauth_tokens.json.tmp
