@@ -20,6 +20,7 @@ interface SkillsWorkspaceModalProps {
   onClose: () => void;
   activeSkillIds: string[];
   onToggleSkillActivation: (id: string) => void;
+  onTestSkill: (id: string, prompt: string) => void;
 }
 
 export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
@@ -27,6 +28,7 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
   onClose,
   activeSkillIds,
   onToggleSkillActivation,
+  onTestSkill,
 }) => {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [search, setSearch] = useState("");
@@ -445,6 +447,17 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
                     title="Create a copy of this skill"
                   >
                     Duplicate
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => onTestSkill(
+                      selectedSkill.id,
+                      "Help me test the " + selectedSkill.name + " skill with a simple example."
+                    )}
+                    title="Prefill a test prompt in chat with this skill activated"
+                  >
+                    Try in chat
                   </Button>
                   <Button
                     size="sm"
