@@ -122,7 +122,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       if (!prepareResponse.ok) throw new Error(prepared.error || "Could not prepare GitHub issue.");
       const preview = prepared.preview as { repository: string; title: string; body: string };
       const confirmed = window.confirm(
-        \`Create a real GitHub issue?\\n\\nRepository: \${preview.repository}\\nTitle: \${preview.title}\\n\\nDescription:\\n\${preview.body || "(No description)"}\\n\\nThis confirmation expires in five minutes.\`
+        "Create a real GitHub issue?\n\nRepository: " + preview.repository + "\nTitle: " + preview.title + "\n\nDescription:\n" + (preview.body || "(No description)") + "\n\nThis confirmation expires in five minutes."
       );
       if (!confirmed) {
         setTestResult("Issue cancelled. Nothing was posted to GitHub.");
@@ -137,7 +137,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       if (!response.ok) throw new Error(data.error || "Could not create GitHub issue.");
       setGithubIssueTitle("");
       setGithubIssueBody("");
-      setTestResult(\`Created issue #\${data.number} in \${data.repository || repository}: \${data.url}\`);
+      setTestResult("Created issue #" + data.number + " in " + (data.repository || repository) + ": " + data.url);
     } catch (error) {
       setTestResult(error instanceof Error ? error.message : "Could not create GitHub issue.");
     } finally {
