@@ -1272,7 +1272,39 @@ app.patch("/api/scheduled-tasks/:id", (req, res) => {
   const task = tasks.find(item => item.id === req.params.id);
   if (!task) return res.status(404).json({ error: "Scheduled task not found." });
   if (scheduledTaskInFlight.has(task.id)) return res.status(409).json({ error: "This task is running; try again when it finishes." });
-  if (typeof req.body?.enabled === "boolean") task.enabled = req.body.enabled;
+
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  const has = (key: string) => Object.prototype.hasOwnProperty.call(body, key);
+  if (has("title")) {
+    if (typeof body.title !== "string" || !body.title.trim()) return res.status(400).json({ error: "Task title is required." });
+    task.title = body.title.trim().slice(0, 120);
+  }
+  if (has("prompt")) {
+    if (typeof body.prompt !== "string" || !body.prompt.trim()) return res.status(400).json({ error: "Task instructions are required." });
+    task.prompt = body.prompt.trim().slice(0, 2000);
+  }
+  if (has("frequency")) {
+    if (!["once", "daily", "weekly"].includes(body.frequency)) return res.status(400).json({ error: "Frequency must be once, daily, or weekly." });
+    task.frequency = body.frequency;
+  }
+  if (has("nextRunAt")) {
+    const nextRunAt = Number(body.nextRunAt);
+    if (!Number.isFinite(nextRunAt) || nextRunAt < Date.now() - 60_000) return res.status(400).json({ error: "Choose a future run time." });
+    task.nextRunAt = nextRunAt;
+  }
+  if (has("timeZone")) {
+    if (typeof body.timeZone !== "string" || !body.timeZone.trim()) return res.status(400).json({ error: "Time zone must be a valid IANA time zone." });
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: body.timeZone }).format(new Date());
+      task.timeZone = body.timeZone;
+    } catch {
+      return res.status(400).json({ error: "Time zone must be a valid IANA time zone." });
+    }
+  }
+  if (typeof body.enabled === "boolean") task.enabled = body.enabled;
+  if (!["title", "prompt", "frequency", "nextRunAt", "timeZone", "enabled"].some(has)) {
+    return res.status(400).json({ error: "Provide at least one task field to update." });
+  }
   saveScheduledTasks(tasks);
   return res.json(task);
 });
