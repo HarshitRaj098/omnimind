@@ -21,7 +21,7 @@ const GOOGLE_TOKENS_FILE = path.join(DATA_DIR, "google_oauth_tokens.json");
 const GITHUB_TOKENS_FILE = path.join(DATA_DIR, "github_oauth_tokens.json");
 const googleOAuthStates = new Map<string, number>();
 const githubOAuthStates = new Map<string, number>();
-type PendingChatWrite = { id: string; type: "gmail_send" | "calendar_create" | "google_tasks_create" | "google_tasks_complete"; payload: Record<string, unknown>; summary: string; details: string; status: "pending" | "executing" | "confirmed" | "cancelled" | "failed"; createdAt: number };
+type PendingChatWrite = { id: string; type: "gmail_send" | "calendar_create" | "google_tasks_create" | "google_tasks_complete" | "google_docs_append" | "google_sheets_update"; payload: Record<string, unknown>; summary: string; details: string; status: "pending" | "executing" | "confirmed" | "cancelled" | "failed"; createdAt: number };
 const pendingChatWrites = new Map<string, PendingChatWrite>();
 
 const FILES_INDEX_FILE = path.join(DATA_DIR, "file_index.json");
@@ -2840,7 +2840,9 @@ app.post("/api/chat/action/confirm", async (req, res) => {
     gmail_send: "/api/apps/gmail/send",
     calendar_create: "/api/apps/calendar/events",
     google_tasks_create: "/api/apps/tasks/create",
-    google_tasks_complete: "/api/apps/tasks/complete"
+    google_tasks_complete: "/api/apps/tasks/complete",
+    google_docs_append: "/api/apps/docs/append",
+    google_sheets_update: "/api/apps/sheets/update"
   };
   // Claim the one-time action before awaiting the provider request to prevent double-click races.
   pending.status = "executing";
@@ -3723,7 +3725,9 @@ app.post("/api/chat/stream", async (req, res) => {
           { name: "gmail_send", description: "Prepare an email send request. This is a write action and must not be sent without explicit user confirmation.", parameters: { type: "OBJECT", properties: { to: { type: "STRING" }, subject: { type: "STRING" }, body: { type: "STRING" } }, required: ["to", "subject", "body"] } },
           { name: "calendar_create", description: "Prepare a calendar event creation request. This is a write action and must not be created without explicit user confirmation.", parameters: { type: "OBJECT", properties: { summary: { type: "STRING" }, start: { type: "STRING", description: "ISO 8601 start date-time" }, end: { type: "STRING", description: "ISO 8601 end date-time" }, description: { type: "STRING" }, location: { type: "STRING" } }, required: ["summary", "start", "end"] } },
           { name: "google_tasks_create", description: "Prepare a Google Task creation request. Must not be created without explicit user confirmation.", parameters: { type: "OBJECT", properties: { listId: { type: "STRING", description: "Verified Google Tasks list ID" }, title: { type: "STRING" }, notes: { type: "STRING" } }, required: ["listId", "title"] } },
-          { name: "google_tasks_complete", description: "Prepare a request to mark a Google Task complete. Must not be changed without explicit user confirmation.", parameters: { type: "OBJECT", properties: { listId: { type: "STRING" }, taskId: { type: "STRING" } }, required: ["listId", "taskId"] } }
+          { name: "google_tasks_complete", description: "Prepare a request to mark a Google Task complete. Must not be changed without explicit user confirmation.", parameters: { type: "OBJECT", properties: { listId: { type: "STRING" }, taskId: { type: "STRING" } }, required: ["listId", "taskId"] } },
+          { name: "google_docs_append", description: "Prepare text to append to an existing Google Docs document. Must not edit the document without explicit user confirmation.", parameters: { type: "OBJECT", properties: { documentId: { type: "STRING", description: "Google Docs document ID" }, text: { type: "STRING", description: "Exact text to append" } }, required: ["documentId", "text"] } },
+          { name: "google_sheets_update", description: "Prepare a write of text values to a Google Sheets range. Must not update cells without explicit user confirmation.", parameters: { type: "OBJECT", properties: { spreadsheetId: { type: "STRING", description: "Google Sheets spreadsheet ID" }, range: { type: "STRING", description: "A1 notation range such as Sheet1!A1:B2" }, values: { type: "ARRAY", items: { type: "ARRAY", items: { type: "STRING" } }, description: "Rows of text cell values to write" } }, required: ["spreadsheetId", "range", "values"] } }
         ]
       }];
       const toolsConfig = [...(withSearch ? [{ googleSearch: {} }] : []), ...connectedAppFunctions];
@@ -3784,7 +3788,7 @@ app.post("/api/chat/stream", async (req, res) => {
         const candidate = (chunk as any).candidates?.[0];
         for (const part of candidate?.content?.parts || []) {
           const call = part?.functionCall;
-          if (call && ["gmail_search", "drive_search", "calendar_events", "youtube_search", "gmail_send", "calendar_create", "google_tasks_create", "google_tasks_complete"].includes(call.name)) {
+          if (call && ["gmail_search", "drive_search", "calendar_events", "youtube_search", "gmail_send", "calendar_create", "google_tasks_create", "google_tasks_complete", "google_docs_append", "google_sheets_update"].includes(call.name)) {
             requestedCalls.push({ name: call.name, args: call.args && typeof call.args === "object" ? call.args : {} });
           }
         }
@@ -3815,7 +3819,7 @@ app.post("/api/chat/stream", async (req, res) => {
       toolRounds++;
       const functionResponses: any[] = [];
       for (const call of requestedCalls.slice(0, 4)) {
-        if (["gmail_send", "calendar_create", "google_tasks_create", "google_tasks_complete"].includes(call.name)) {
+        if (["gmail_send", "calendar_create", "google_tasks_create", "google_tasks_complete", "google_docs_append", "google_sheets_update"].includes(call.name)) {
           const type = call.name as PendingChatWrite["type"];
           const args = call.args;
           let payload: Record<string, unknown>;
@@ -3843,6 +3847,22 @@ app.post("/api/chat/stream", async (req, res) => {
             details = String(payload.title || "(missing task title)") + (payload.notes ? "\n" + String(payload.notes) : "") + "\nList: " + String(payload.listId);
             if (!payload.title) {
               functionResponses.push({ functionResponse: { name: call.name, response: { error: "Task title is required. Ask the user for it; no task was created." } } });
+              continue;
+            }
+          } else if (type === "google_docs_append") {
+            payload = { documentId: typeof args.documentId === "string" ? args.documentId.trim().slice(0, 200) : "", text: typeof args.text === "string" ? args.text.slice(0, 10000) : "" };
+            summary = "Append text to Google Docs";
+            details = "Document ID: " + String(payload.documentId || "(missing document ID)") + "\n\nText to append:\n" + String(payload.text || "(missing text)");
+            if (!/^[A-Za-z0-9_-]{10,200}$/.test(String(payload.documentId)) || !String(payload.text).trim()) {
+              functionResponses.push({ functionResponse: { name: call.name, response: { error: "A valid document ID and non-empty text are required. Nothing was changed." } } });
+              continue;
+            }
+          } else if (type === "google_sheets_update") {
+            payload = { spreadsheetId: typeof args.spreadsheetId === "string" ? args.spreadsheetId.trim().slice(0, 200) : "", range: typeof args.range === "string" ? args.range.trim().slice(0, 120) : "", values: Array.isArray(args.values) ? args.values.slice(0, 20).map((row: unknown) => Array.isArray(row) ? row.slice(0, 10).map((cell: unknown) => typeof cell === "string" ? cell.slice(0, 2000) : String(cell).slice(0, 2000)) : []) : [] };
+            summary = "Update Google Sheets cells";
+            details = "Spreadsheet ID: " + String(payload.spreadsheetId || "(missing spreadsheet ID)") + "\nRange: " + String(payload.range || "(missing range)") + "\nValues:\n" + JSON.stringify(payload.values, null, 2);
+            if (!/^[A-Za-z0-9_-]{10,200}$/.test(String(payload.spreadsheetId)) || !/^(?:'?[A-Za-z0-9 _-]{1,80}'?!)?[A-Z]{1,3}[1-9][0-9]*(?::[A-Z]{1,3}[1-9][0-9]*)?$/.test(String(payload.range)) || !Array.isArray(payload.values) || payload.values.length === 0 || payload.values.some((row: unknown) => !Array.isArray(row) || row.length === 0)) {
+              functionResponses.push({ functionResponse: { name: call.name, response: { error: "A valid spreadsheet ID, A1 range, and non-empty rows are required. Nothing was changed." } } });
               continue;
             }
           } else {
