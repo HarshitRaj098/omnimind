@@ -499,7 +499,7 @@ function loadApps(): ConnectedApp[] {
   const googleScopes = new Set((googleTokens?.scope || "").split(/\s+/).filter(Boolean));
   const githubTokens = loadGitHubOAuthTokens();
   return apps.map(app => {
-    const connected = app.category === "google"
+    const connected = app.category === "google" || app.category === "youtube"
       ? Boolean(googleTokens) && app.scopes.every(scope => googleScopes.has(scope))
       : app.category === "github"
         ? Boolean(githubTokens?.scopes.includes("read:user"))
@@ -507,8 +507,8 @@ function loadApps(): ConnectedApp[] {
     return {
       ...app,
       connected,
-      accountEmail: app.category === "google" && connected ? googleTokens?.email : undefined,
-      lastConnected: app.category === "google" && connected
+      accountEmail: (app.category === "google" || app.category === "youtube") && connected ? googleTokens?.email : undefined,
+      lastConnected: (app.category === "google" || app.category === "youtube") && connected
         ? googleTokens?.connectedAt
         : app.category === "github" && connected ? githubTokens?.connectedAt : undefined
     };
@@ -2525,6 +2525,45 @@ app.get("/api/apps/drive/files", async (req, res) => {
   }
 });
 
+
+// Read-only YouTube Data API search, authorized by the user's Google OAuth connection.
+app.get("/api/apps/youtube/search", async (req, res) => {
+  const query = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 200) : "";
+  if (!query) return res.status(400).json({ error: "Enter a YouTube search query." });
+  try {
+    const accessToken = await getGoogleAccessToken("https://www.googleapis.com/auth/youtube.readonly");
+    const url = new URL("https://www.googleapis.com/youtube/v3/search");
+    url.searchParams.set("part", "snippet");
+    url.searchParams.set("type", "video");
+    url.searchParams.set("maxResults", "10");
+    url.searchParams.set("q", query);
+    url.searchParams.set("safeSearch", "moderate");
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(12_000)
+    });
+    const data = await response.json() as {
+      items?: Array<{ id?: { videoId?: string }; snippet?: { title?: string; description?: string; channelTitle?: string; publishedAt?: string; thumbnails?: { medium?: { url?: string } } } }>;
+      error?: { message?: string };
+    };
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) return res.status(response.status).json({ error: "YouTube access was denied. Reconnect Google and approve YouTube read-only permission." });
+      return res.status(502).json({ error: data.error?.message || "YouTube search failed. Try again." });
+    }
+    const videos = (data.items || []).filter(item => item.id?.videoId).map(item => ({
+      id: item.id!.videoId!,
+      title: item.snippet?.title || "(untitled video)",
+      description: item.snippet?.description || "",
+      channelTitle: item.snippet?.channelTitle || "",
+      publishedAt: item.snippet?.publishedAt || "",
+      thumbnailUrl: item.snippet?.thumbnails?.medium?.url || "",
+      url: `https://www.youtube.com/watch?v=${encodeURIComponent(item.id!.videoId!)}`
+    }));
+    return res.json({ query, videos });
+  } catch (error) {
+    return sendGoogleAppError(res, error);
+  }
+});
 
 // Read-only Google Tasks integration. Fetch a bounded set of tasks from the first task list.
 app.get("/api/apps/tasks", async (_req, res) => {
