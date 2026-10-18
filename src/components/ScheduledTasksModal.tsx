@@ -34,6 +34,49 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
   );
 
+  const exportTasks = async () => {
+    setError(null);
+    try {
+      const response = await fetch("/api/scheduled-tasks/export", { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not export tasks.");
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "omnimind-scheduled-tasks.json";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not export tasks.");
+    }
+  };
+
+  const importTasks = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setError(null);
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+      const response = await fetch("/api/scheduled-tasks/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(backup),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not import tasks.");
+      await loadTasks();
+      setError(null);
+      window.alert(`Imported ${data.imported} task(s); skipped ${data.skipped}. All imported tasks are paused until you review and resume them.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not import tasks.");
+    }
+  };
+
   const enableNotifications = async () => {
     if (!("Notification" in window)) {
       setNotificationPermission("unsupported");
@@ -196,6 +239,16 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
             <Button type="submit" variant="primary" disabled={loading || !title.trim() || !prompt.trim()}>{loading ? "Saving…" : "Schedule task"}</Button>
           </div>
         </form>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs text-[var(--claude-text-muted)]">Back up task definitions without execution results or connected-account credentials. Imports are always paused.</div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="secondary" onClick={() => void exportTasks()}>Export JSON</Button>
+            <label className="inline-flex cursor-pointer items-center rounded-xl border border-[var(--claude-border)] px-3 py-2 text-xs font-medium hover:bg-[var(--claude-surface)]">
+              Import JSON
+              <input type="file" accept="application/json,.json" className="hidden" onChange={event => void importTasks(event)} />
+            </label>
+          </div>
+        </div>
         <div className="space-y-2">
           {tasks.length === 0 ? <p className="py-6 text-center text-sm text-[var(--claude-text-muted)]">No scheduled tasks yet.</p> : tasks.map(task => (
             <article key={task.id} className="rounded-xl border border-[var(--claude-border)] p-3 space-y-2">

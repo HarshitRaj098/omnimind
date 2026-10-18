@@ -1236,6 +1236,73 @@ app.get("/api/scheduled-tasks", (_req, res) => {
     .sort((a, b) => a.nextRunAt - b.nextRunAt));
 });
 
+app.get("/api/scheduled-tasks/export", (_req, res) => {
+  const tasks = loadScheduledTasks().map(task => ({
+    title: task.title,
+    prompt: task.prompt,
+    frequency: task.frequency,
+    nextRunAt: task.nextRunAt,
+    timeZone: task.timeZone || "UTC",
+    enabled: task.enabled,
+    createdAt: task.createdAt
+  }));
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Disposition", 'attachment; filename="omnimind-scheduled-tasks.json"');
+  return res.json({ format: "omnimind-scheduled-tasks", version: 1, exportedAt: Date.now(), tasks });
+});
+
+app.post("/api/scheduled-tasks/import", (req, res) => {
+  const payload = req.body;
+  if (!payload || payload.format !== "omnimind-scheduled-tasks" || payload.version !== 1 || !Array.isArray(payload.tasks)) {
+    return res.status(400).json({ error: "Choose a valid OmniMind scheduled-task backup (version 1)." });
+  }
+  if (payload.tasks.length > 100) return res.status(413).json({ error: "A backup can contain at most 100 tasks." });
+
+  const current = loadScheduledTasks();
+  const identities = new Set(current.map(task => [task.title.trim().toLowerCase(), task.prompt.trim().toLowerCase(), task.frequency].join("\\u0000")));
+  let imported = 0;
+  let skipped = 0;
+  for (const item of payload.tasks) {
+    const title = typeof item?.title === "string" ? item.title.trim().slice(0, 120) : "";
+    const prompt = typeof item?.prompt === "string" ? item.prompt.trim().slice(0, 2000) : "";
+    const frequency = item?.frequency;
+    const nextRunAt = Number(item?.nextRunAt);
+    const requestedZone = typeof item?.timeZone === "string" ? item.timeZone.trim() : "UTC";
+    if (!title || !prompt || !["once", "daily", "weekly"].includes(frequency) || !Number.isFinite(nextRunAt) || nextRunAt <= 0) {
+      skipped++;
+      continue;
+    }
+    let timeZone = "UTC";
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: requestedZone }).format(new Date());
+      timeZone = requestedZone;
+    } catch {
+      skipped++;
+      continue;
+    }
+    const identity = [title.toLowerCase(), prompt.toLowerCase(), frequency].join("\\u0000");
+    if (identities.has(identity) || current.length >= 100) {
+      skipped++;
+      continue;
+    }
+    current.push({
+      id: "task_" + randomBytes(8).toString("hex"),
+      title,
+      prompt,
+      frequency,
+      nextRunAt: Math.max(nextRunAt, Date.now() + 60_000),
+      timeZone,
+      enabled: false,
+      createdAt: Date.now(),
+      runCount: 0
+    });
+    identities.add(identity);
+    imported++;
+  }
+  if (imported) saveScheduledTasks(current);
+  return res.json({ success: true, imported, skipped, total: current.length, note: "Imported tasks are paused. Review each task and resume it manually." });
+});
+
 app.get("/api/scheduled-tasks/:id/runs", (req, res) => {
   const task = loadScheduledTasks().find(item => item.id === req.params.id);
   if (!task) return res.status(404).json({ error: "Scheduled task not found." });
