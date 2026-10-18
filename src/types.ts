@@ -9,6 +9,15 @@ export interface GroundingMetadata {
   sources?: GroundingSource[];
 }
 
+export interface PendingChatAction {
+  id: string;
+  type: "gmail_send" | "calendar_create" | "google_tasks_create" | "google_tasks_complete";
+  summary: string;
+  details: string;
+  status: "pending" | "confirmed" | "cancelled" | "failed";
+  result?: string;
+}
+
 export interface Message {
   id: string;
   role: "user" | "model";
@@ -16,6 +25,7 @@ export interface Message {
   timestamp: number;
   attachments?: { name: string; mimeType: string; data: string }[];
   grounding?: GroundingMetadata;
+  pendingActions?: PendingChatAction[];
 }
 
 export interface ConversationSummary {
