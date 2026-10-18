@@ -3665,7 +3665,16 @@ app.post("/api/chat/stream", async (req, res) => {
     // Helper to initiate chat stream
     const initStream = async (targetModel: string, withSearch: boolean) => {
       assertGeminiModelAvailable(targetModel);
-      const toolsConfig = withSearch ? [{ googleSearch: {} }] : undefined;
+      const connectedAppFunctions = [{
+        functionDeclarations: [
+          { name: "gmail_search", description: "Search Gmail messages. Read-only.", parameters: { type: "OBJECT", properties: { query: { type: "STRING", description: "Gmail search syntax" } }, required: ["query"] } },
+          { name: "drive_search", description: "Search Google Drive files by name. Read-only.", parameters: { type: "OBJECT", properties: { query: { type: "STRING" } }, required: ["query"] } },
+          { name: "calendar_events", description: "List upcoming Google Calendar events. Read-only.", parameters: { type: "OBJECT", properties: { days: { type: "NUMBER", description: "1 to 30 upcoming days" } } } },
+          { name: "youtube_search", description: "Search YouTube videos. Read-only.", parameters: { type: "OBJECT", properties: { query: { type: "STRING" } }, required: ["query"] } }
+        ]
+      }];
+      const toolsConfig = [...(withSearch ? [{ googleSearch: {} }] : []), ...connectedAppFunctions];
+      let activeChatSession: any = null;
       const chatSession = ai.chats.create({
         model: targetModel,
         history: history.length > 0 ? history : undefined,
@@ -3675,6 +3684,7 @@ app.post("/api/chat/stream", async (req, res) => {
           tools: toolsConfig
         }
       });
+      activeChatSession = chatSession;
       try {
         return await chatSession.sendMessageStream({
           message: messageParts.length > 0 ? messageParts : [{ text: "Hello" }]
@@ -3711,53 +3721,56 @@ app.post("/api/chat/stream", async (req, res) => {
     let fullModelResponse = "";
     let capturedGrounding: GroundingMetadata | null = null;
 
-    for await (const chunk of resultStream) {
-      if (isAborted) {
-        console.log("Client aborted chat stream");
-        break;
-      }
-
-      const chunkText = chunk.text || "";
-      fullModelResponse += chunkText;
-
-      // Extract real grounding metadata from chunk candidates
-      const candidate = (chunk as any).candidates?.[0];
-      if (candidate?.groundingMetadata) {
-        const gm = candidate.groundingMetadata;
-        const queries: string[] = gm.webSearchQueries || [];
-        const sources: GroundingSource[] = [];
-
-        if (gm.groundingChunks) {
-          for (const gc of gm.groundingChunks) {
-            if (gc.web?.uri) {
-              try {
-                const u = new URL(gc.web.uri);
-                sources.push({
-                  title: gc.web.title || u.hostname,
-                  url: gc.web.uri,
-                  domain: u.hostname.replace(/^www\./, "")
-                });
-              } catch {
-                sources.push({
-                  title: gc.web.title || gc.web.uri,
-                  url: gc.web.uri,
-                  domain: "source"
-                });
-              }
-            }
+    let pendingStreams: any[] = [resultStream];
+    let toolRounds = 0;
+    while (pendingStreams.length > 0 && !isAborted) {
+      const currentStream = pendingStreams.shift();
+      const requestedCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+      for await (const chunk of currentStream) {
+        if (isAborted) break;
+        const candidate = (chunk as any).candidates?.[0];
+        for (const part of candidate?.content?.parts || []) {
+          const call = part?.functionCall;
+          if (call && ["gmail_search", "drive_search", "calendar_events", "youtube_search"].includes(call.name)) {
+            requestedCalls.push({ name: call.name, args: call.args && typeof call.args === "object" ? call.args : {} });
           }
         }
-
-        if (queries.length > 0 || sources.length > 0) {
-          capturedGrounding = { queries, sources };
+        const chunkText = chunk.text || "";
+        fullModelResponse += chunkText;
+        if (candidate?.groundingMetadata) {
+          const gm = candidate.groundingMetadata;
+          const queries: string[] = gm.webSearchQueries || [];
+          const sources: GroundingSource[] = [];
+          for (const gc of gm.groundingChunks || []) {
+            if (gc.web?.uri) {
+              try { const u = new URL(gc.web.uri); sources.push({ title: gc.web.title || u.hostname, url: gc.web.uri, domain: u.hostname.replace(/^www\\./, "") }); }
+              catch { sources.push({ title: gc.web.title || gc.web.uri, url: gc.web.uri, domain: "source" }); }
+            }
+          }
+          if (queries.length > 0 || sources.length > 0) capturedGrounding = { queries, sources };
         }
+        if (chunkText && !isAborted) res.write("data: " + JSON.stringify({ text: chunkText, done: false }) + "\\n\\n");
       }
-
-      if (chunkText && !isAborted) {
-        res.write(`data: ${JSON.stringify({ text: chunkText, done: false })}\n\n`);
+      if (isAborted || requestedCalls.length === 0) continue;
+      if (toolRounds >= 2) {
+        const limitText = "\\n\\n(I stopped additional connected-app tool calls to keep this request bounded.)";
+        fullModelResponse += limitText;
+        res.write("data: " + JSON.stringify({ text: limitText, done: false }) + "\\n\\n");
+        pendingStreams.length = 0;
+        continue;
       }
+      toolRounds++;
+      const functionResponses: any[] = [];
+      for (const call of requestedCalls.slice(0, 4)) {
+        try {
+          const response = await fetch("http://127.0.0.1:" + PORT + "/api/tools/execute", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: call.name, args: call.args }), signal: AbortSignal.timeout(15000) });
+          const payload = await response.json().catch(() => ({ error: "Connected-app tool returned invalid JSON." }));
+          functionResponses.push({ functionResponse: { name: call.name, response: { status: response.status, ...payload } } });
+        } catch (error) { functionResponses.push({ functionResponse: { name: call.name, response: { error: error instanceof Error ? error.message : "Connected-app tool failed." } } }); }
+      }
+      const followup = await activeChatSession.sendMessageStream({ message: functionResponses });
+      pendingStreams.push(followup);
     }
-
     if (capturedGrounding && !isAborted) {
       res.write(`data: ${JSON.stringify({ grounding: capturedGrounding, done: false })}\n\n`);
     }
