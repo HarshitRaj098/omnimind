@@ -438,16 +438,17 @@ async function getGoogleAccessToken(requiredScope: string): Promise<string> {
   }
 
   const config = googleOAuthConfig();
-  if (!config.configured) throw new GoogleAppError(503, "Google OAuth is not configured on the server.");
+  if (!config.clientId) throw new GoogleAppError(503, "Google OAuth client ID is missing on the server.");
+  const refreshParams = new URLSearchParams({
+    client_id: config.clientId,
+    refresh_token: tokens.refresh_token,
+    grant_type: "refresh_token"
+  });
+  if (config.clientSecret) refreshParams.set("client_secret", config.clientSecret);
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: config.clientId!,
-      client_secret: config.clientSecret!,
-      refresh_token: tokens.refresh_token,
-      grant_type: "refresh_token"
-    }),
+    body: refreshParams,
     signal: AbortSignal.timeout(10_000)
   });
   const data = await response.json() as { access_token?: string; expires_in?: number; scope?: string; error?: string };
@@ -1843,16 +1844,24 @@ const GOOGLE_OAUTH_SCOPES = [
   "https://www.googleapis.com/auth/youtube.readonly"
 ];
 
-function googleOAuthConfig() {
+function googleOAuthConfig(req?: express.Request) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const appUrl = process.env.APP_URL?.replace(/\/$/, "");
+  const configuredAppUrl = process.env.APP_URL?.replace(/\/$/, "");
+  // AI Studio's hosted runtime can supply its own HTTPS origin, avoiding a separate APP_URL secret.
+  // Restrict this fallback to Google-hosted run.app domains instead of trusting arbitrary Host headers.
+  const host = req?.get("host") || "";
+  const requestAppUrl = !configuredAppUrl && !process.env.GOOGLE_REDIRECT_URI && /(?:^|\.)run\.app$/i.test(host)
+    ? `https://${host}`
+    : "";
+  const appUrl = configuredAppUrl || requestAppUrl;
   const redirectUri = process.env.GOOGLE_REDIRECT_URI || (appUrl ? `${appUrl}/api/apps/google/callback` : "");
-  return { clientId, clientSecret, redirectUri, configured: Boolean(clientId && clientSecret && redirectUri) };
+  // Google documents client_secret as optional at the token endpoint; keep it optional for managed/public setups.
+  return { clientId, clientSecret, redirectUri, configured: Boolean(clientId && redirectUri) };
 }
 
-app.get("/api/apps/status", (_req, res) => {
-  const config = googleOAuthConfig();
+app.get("/api/apps/status", (req, res) => {
+  const config = googleOAuthConfig(req);
   const tokens = loadGoogleOAuthTokens();
   const githubConfig = githubOAuthConfig();
   const githubTokens = loadGitHubOAuthTokens();
@@ -1867,8 +1876,8 @@ app.get("/api/apps/status", (_req, res) => {
 });
 
 // Safe OAuth diagnostics: exposes configuration status and granted scope names, never secrets or tokens.
-app.get("/api/apps/google/diagnostics", (_req, res) => {
-  const config = googleOAuthConfig();
+app.get("/api/apps/google/diagnostics", (req, res) => {
+  const config = googleOAuthConfig(req);
   const tokens = loadGoogleOAuthTokens();
   const grantedScopes = (tokens?.scope || "").split(/\s+/).filter(Boolean);
   const missingScopes = GOOGLE_OAUTH_SCOPES.filter(scope => !grantedScopes.includes(scope));
@@ -1895,8 +1904,8 @@ app.get("/api/apps", (_req, res) => {
   res.json(loadApps());
 });
 
-app.get("/api/apps/google/connect", (_req, res) => {
-  const config = googleOAuthConfig();
+app.get("/api/apps/google/connect", (req, res) => {
+  const config = googleOAuthConfig(req);
   if (!config.configured) {
     return res.status(503).type("text/plain").send(
       "Google OAuth is not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and APP_URL (or GOOGLE_REDIRECT_URI), then restart OmniMind."
@@ -1931,23 +1940,24 @@ app.get("/api/apps/google/callback", async (req, res) => {
     return res.redirect("/?connected_apps=error&reason=" + encodeURIComponent(req.query.error));
   }
   const code = typeof req.query.code === "string" ? req.query.code : "";
-  const config = googleOAuthConfig();
+  const config = googleOAuthConfig(req);
   if (!code || !config.configured) {
     return res.status(400).type("text/plain").send("Google did not return an authorization code, or OAuth is not configured.");
   }
 
   try {
     const previousTokens = loadGoogleOAuthTokens();
+    const tokenParams = new URLSearchParams({
+      code,
+      client_id: config.clientId!,
+      redirect_uri: config.redirectUri,
+      grant_type: "authorization_code"
+    });
+    if (config.clientSecret) tokenParams.set("client_secret", config.clientSecret);
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        code,
-        client_id: config.clientId!,
-        client_secret: config.clientSecret!,
-        redirect_uri: config.redirectUri,
-        grant_type: "authorization_code"
-      })
+      body: tokenParams
     });
     const tokenData = await tokenResponse.json() as {
       access_token?: string; refresh_token?: string; scope?: string; expires_in?: number; error?: string;
