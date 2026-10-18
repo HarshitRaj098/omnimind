@@ -1712,7 +1712,7 @@ app.post("/api/apps/github/changes/prepare", async (req, res) => {
   if (!match || match[1].toLowerCase() !== tokens.login.toLowerCase()) return res.status(400).json({ error: "Choose a repository owned by the connected GitHub account." });
   if (!safeGitHubSourcePath(filePath)) return res.status(400).json({ error: "Choose a source, documentation, or configuration file path. Secret files, workflows, lockfiles, and unsafe paths are blocked." });
   if (!content.trim() || content.length > 50_000) return res.status(400).json({ error: "File content must be non-empty and at most 50,000 characters." });
-  if (!commitMessage || commitMessage.length > 120 || /[\\r\\n]/.test(commitMessage)) return res.status(400).json({ error: "Enter a one-line commit/PR title of at most 120 characters." });
+  if (!commitMessage || commitMessage.length > 120 || /[\r\n]/.test(commitMessage)) return res.status(400).json({ error: "Enter a one-line commit/PR title of at most 120 characters." });
   if (!/^[A-Za-z0-9._/-]{1,100}$/.test(baseBranch) || baseBranch.split("/").some(part => !part || part === "." || part === "..")) {
     return res.status(400).json({ error: "Base branch name is invalid." });
   }
