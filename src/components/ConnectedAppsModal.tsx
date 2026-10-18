@@ -26,6 +26,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
   const [testResult, setTestResult] = useState<string | null>(null);
   const [googleOAuthConfigured, setGoogleOAuthConfigured] = useState(false);
   const [googleAccountEmail, setGoogleAccountEmail] = useState<string | null>(null);
+  const [googleOAuthDiagnostics, setGoogleOAuthDiagnostics] = useState<{ callbackUri?: string | null; configured?: boolean; missingScopes?: string[]; connected?: boolean } | null>(null);
   const [githubOAuthConfigured, setGithubOAuthConfigured] = useState(false);
   const [githubLogin, setGithubLogin] = useState<string | null>(null);
   const [githubRepos, setGithubRepos] = useState<Array<{ id: number; fullName: string; description?: string | null; url: string; language?: string | null; stars: number; updatedAt: string }>>([]);
@@ -80,7 +81,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
 
   const fetchApps = async () => {
     try {
-      const [appsResponse, statusResponse] = await Promise.all([fetch("/api/apps"), fetch("/api/apps/status")]);
+      const [appsResponse, statusResponse, diagnosticsResponse] = await Promise.all([fetch("/api/apps"), fetch("/api/apps/status"), fetch("/api/apps/google/diagnostics", { cache: "no-store" })]);
       if (appsResponse.ok) setApps(await appsResponse.json());
       if (statusResponse.ok) {
         const status = await statusResponse.json();
@@ -89,6 +90,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
         setGithubOAuthConfigured(Boolean(status.githubOAuthConfigured));
         setGithubLogin(status.githubLogin || null);
       }
+      if (diagnosticsResponse.ok) setGoogleOAuthDiagnostics(await diagnosticsResponse.json());
     } catch (e) {
       console.error("Failed to load connected apps", e);
       setTestResult("Could not load connection status. Check the OmniMind server.");
@@ -632,19 +634,32 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
           <div>
             <h3 className="text-xs font-semibold text-[var(--claude-text)]">Google account</h3>
             <p className="mt-1 text-[11px] text-[var(--claude-text-muted)]">
-              {googleAccountEmail ? `Authorized as ${googleAccountEmail}` : googleOAuthConfigured ? "Authorize read-only access to supported Google services." : "Configure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and APP_URL on the server first."}
+              {googleAccountEmail ? `Signed in as ${googleAccountEmail}` : googleOAuthConfigured ? "Sign in to Google and approve the requested Gmail and Workspace permissions." : "Google sign-in is not configured. Add the OAuth client ID, client secret, and public app URL to the server environment."}
             </p>
           </div>
           {googleAccountEmail ? (
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="secondary" disabled={!googleOAuthConfigured || loading} onClick={connectGoogle}>Reauthorize for write access</Button>
+              <Button size="sm" variant="secondary" disabled={!googleOAuthConfigured || loading} onClick={connectGoogle}>Choose account / update permissions</Button>
               <Button size="sm" variant="danger" disabled={loading} onClick={disconnectGoogle}>Disconnect Google</Button>
             </div>
           ) : (
-            <Button size="sm" variant="primary" disabled={!googleOAuthConfigured || loading} onClick={connectGoogle}>Connect Google</Button>
+            <Button size="sm" variant="primary" disabled={!googleOAuthConfigured || loading} onClick={connectGoogle}>Sign in with Google</Button>
           )}
         </div>
 
+        {googleOAuthDiagnostics && (
+          <div className="rounded-xl border border-[var(--claude-border)] bg-[var(--claude-bg)] p-3 space-y-1.5 text-[11px]">
+            <div className="font-semibold text-[var(--claude-text)]">Google sign-in diagnostics</div>
+            <div className="text-[var(--claude-text-muted)]">OAuth configuration: {googleOAuthDiagnostics.configured ? "Ready" : "Missing server environment values"}</div>
+            <div className="break-all text-[var(--claude-text-muted)]">Authorized redirect URI: {googleOAuthDiagnostics.callbackUri || "Unavailable — configure APP_URL or GOOGLE_REDIRECT_URI"}</div>
+            {googleOAuthDiagnostics.connected && (googleOAuthDiagnostics.missingScopes?.length ?? 0) > 0 && (
+              <div className="text-amber-500">Some permissions are missing. Choose account / update permissions to grant them.</div>
+            )}
+            {!googleOAuthDiagnostics.configured && (
+              <div className="text-[var(--claude-text-muted)]">In Google Cloud Console, add the exact redirect URI above under OAuth Client → Authorized redirect URIs. The deployment URL must match APP_URL.</div>
+            )}
+          </div>
+        )}
         <div className="rounded-xl border border-[var(--claude-border)] bg-[var(--claude-surface)] p-4 space-y-3">
           <div>
             <h3 className="text-xs font-semibold text-[var(--claude-text)]">Google Workspace tools</h3>
