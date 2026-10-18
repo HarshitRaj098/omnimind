@@ -1708,7 +1708,7 @@ app.post("/api/apps/github/changes/prepare", async (req, res) => {
   const content = typeof req.body?.content === "string" ? req.body.content : "";
   const commitMessage = typeof req.body?.commitMessage === "string" ? req.body.commitMessage.trim() : "";
   const baseBranch = typeof req.body?.baseBranch === "string" ? req.body.baseBranch.trim() : "main";
-  const match = /^([A-Za-z0-9-]+)\\/([A-Za-z0-9_.-]+)$/.exec(repository);
+  const match = /^([A-Za-z0-9-]+)\/([A-Za-z0-9_.-]+)$/.exec(repository);
   if (!match || match[1].toLowerCase() !== tokens.login.toLowerCase()) return res.status(400).json({ error: "Choose a repository owned by the connected GitHub account." });
   if (!safeGitHubSourcePath(filePath)) return res.status(400).json({ error: "Choose a source, documentation, or configuration file path. Secret files, workflows, lockfiles, and unsafe paths are blocked." });
   if (!content.trim() || content.length > 50_000) return res.status(400).json({ error: "File content must be non-empty and at most 50,000 characters." });
