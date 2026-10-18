@@ -1651,6 +1651,186 @@ app.post("/api/apps/github/issues/execute", async (req, res) => {
   }
 });
 
+
+
+// Repository file changes are isolated on a fresh branch and submitted as a PR.
+// No direct writes to the default branch; each operation requires an expiring confirmation.
+type PendingGitHubFileChange = {
+  repository: string;
+  path: string;
+  content: string;
+  commitMessage: string;
+  baseBranch: string;
+  baseSha: string;
+  existingFileSha?: string;
+  expiresAt: number;
+};
+const pendingGitHubFileChanges = new Map<string, PendingGitHubFileChange>();
+
+function prunePendingGitHubFileChanges() {
+  const now = Date.now();
+  for (const [id, pending] of pendingGitHubFileChanges) {
+    if (pending.expiresAt <= now) pendingGitHubFileChanges.delete(id);
+  }
+}
+
+function githubApiHeaders(accessToken: string) {
+  return {
+    Authorization: "Bearer " + accessToken,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "OmniMind",
+    "Content-Type": "application/json"
+  };
+}
+
+function safeGitHubSourcePath(filePath: string) {
+  if (!filePath || filePath.length > 240 || filePath.startsWith("/") || filePath.includes("\\") ||
+      filePath.split("/").some(part => !part || part === "." || part === "..") ||
+      /(^|\/)\.env($|\.)/i.test(filePath) ||
+      /(^|\/)(secrets?|credentials?)(\/|\.|$)/i.test(filePath) ||
+      /(^|\/)\.github\/workflows(\/|$)/i.test(filePath) ||
+      /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?)$/i.test(filePath) ||
+      !/\.(ts|tsx|js|jsx|mjs|cjs|json|md|mdx|css|scss|html|py|go|rs|java|kt|yml|yaml|toml|txt|svg)$/i.test(filePath)) {
+    return false;
+  }
+  return true;
+}
+
+app.post("/api/apps/github/changes/prepare", async (req, res) => {
+  prunePendingGitHubFileChanges();
+  const tokens = loadGitHubOAuthTokens();
+  if (!tokens || !tokens.scopes.includes("read:user")) return res.status(401).json({ error: "Connect your GitHub account first." });
+  if (!tokens.scopes.includes("public_repo")) return res.status(403).json({ error: "Repository write permission is missing. Reconnect GitHub and approve public repository access." });
+
+  const repository = typeof req.body?.repository === "string" ? req.body.repository.trim() : "";
+  const filePath = typeof req.body?.path === "string" ? req.body.path.trim() : "";
+  const content = typeof req.body?.content === "string" ? req.body.content : "";
+  const commitMessage = typeof req.body?.commitMessage === "string" ? req.body.commitMessage.trim() : "";
+  const baseBranch = typeof req.body?.baseBranch === "string" ? req.body.baseBranch.trim() : "main";
+  const match = /^([A-Za-z0-9-]+)\/([A-Za-z0-9_.-]+)$/.exec(repository);
+  if (!match || match[1].toLowerCase() !== tokens.login.toLowerCase()) return res.status(400).json({ error: "Choose a repository owned by the connected GitHub account." });
+  if (!safeGitHubSourcePath(filePath)) return res.status(400).json({ error: "Choose a source, documentation, or configuration file path. Secret files, workflows, lockfiles, and unsafe paths are blocked." });
+  if (!content.trim() || content.length > 50_000) return res.status(400).json({ error: "File content must be non-empty and at most 50,000 characters." });
+  if (!commitMessage || commitMessage.length > 120 || /[\r\n]/.test(commitMessage)) return res.status(400).json({ error: "Enter a one-line commit/PR title of at most 120 characters." });
+  if (!/^[A-Za-z0-9._/-]{1,100}$/.test(baseBranch) || baseBranch.split("/").some((part: string) => !part || part === "." || part === "..")) {
+    return res.status(400).json({ error: "Base branch name is invalid." });
+  }
+
+  try {
+    const headers = githubApiHeaders(tokens.access_token);
+    const repoResponse = await fetch("https://api.github.com/repos/" + match[1] + "/" + match[2], {
+      headers, signal: AbortSignal.timeout(8_000)
+    });
+    const repoData = await repoResponse.json() as { private?: boolean; owner?: { login?: string }; full_name?: string; default_branch?: string; message?: string };
+    if (!repoResponse.ok) return res.status(404).json({ error: "Repository could not be verified. Choose a public repository owned by your connected account." });
+    if (repoData.private || repoData.owner?.login?.toLowerCase() !== tokens.login.toLowerCase()) {
+      return res.status(403).json({ error: "For safety, OmniMind can submit changes only to public repositories owned by your connected account." });
+    }
+
+    const encodedBranch = baseBranch.split("/").map(encodeURIComponent).join("/");
+    const refResponse = await fetch("https://api.github.com/repos/" + match[1] + "/" + match[2] + "/git/ref/heads/" + encodedBranch, {
+      headers, signal: AbortSignal.timeout(8_000)
+    });
+    const refData = await refResponse.json() as { object?: { sha?: string }; message?: string };
+    if (!refResponse.ok || !refData.object?.sha) return res.status(400).json({ error: "Base branch could not be verified. Check the branch name and permissions." });
+
+    const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
+    const fileResponse = await fetch("https://api.github.com/repos/" + match[1] + "/" + match[2] + "/contents/" + encodedPath + "?ref=" + encodeURIComponent(baseBranch), {
+      headers, signal: AbortSignal.timeout(8_000)
+    });
+    let existingFileSha: string | undefined;
+    if (fileResponse.ok) {
+      const fileData = await fileResponse.json() as { type?: string; sha?: string };
+      if (fileData.type !== "file" || !fileData.sha) return res.status(400).json({ error: "This path is not a regular file and cannot be edited." });
+      existingFileSha = fileData.sha;
+    } else if (fileResponse.status !== 404) {
+      return res.status(502).json({ error: "GitHub could not inspect the target file. No changes were made." });
+    }
+
+    const actionId = randomBytes(24).toString("hex");
+    const verifiedRepository = repoData.full_name || repository;
+    pendingGitHubFileChanges.set(actionId, {
+      repository: verifiedRepository, path: filePath, content, commitMessage, baseBranch,
+      baseSha: refData.object.sha, existingFileSha, expiresAt: Date.now() + 5 * 60 * 1000
+    });
+    return res.json({
+      actionId, expiresInSeconds: 300,
+      preview: { repository: verifiedRepository, path: filePath, baseBranch, commitMessage, contentPreview: content.slice(0, 1200), contentLength: content.length, updatingExistingFile: Boolean(existingFileSha) }
+    });
+  } catch (error) {
+    console.error("GitHub file change preparation failed:", error);
+    if (error instanceof Error && error.name === "TimeoutError") return res.status(504).json({ error: "GitHub took too long to prepare the change. No file was modified." });
+    return res.status(502).json({ error: "GitHub could not prepare the change. No file was modified." });
+  }
+});
+
+app.post("/api/apps/github/changes/execute", async (req, res) => {
+  prunePendingGitHubFileChanges();
+  const tokens = loadGitHubOAuthTokens();
+  if (!tokens || !tokens.scopes.includes("public_repo")) return res.status(401).json({ error: "Reconnect GitHub and grant public repository permission." });
+  const actionId = typeof req.body?.actionId === "string" ? req.body.actionId : "";
+  if (req.body?.confirm !== true) return res.status(400).json({ error: "Explicit confirmation is required. No repository change was made." });
+  const pending = pendingGitHubFileChanges.get(actionId);
+  if (!pending) return res.status(410).json({ error: "File-change confirmation expired or was already used. Prepare the change again." });
+  pendingGitHubFileChanges.delete(actionId);
+
+  const [owner, repo] = pending.repository.split("/");
+  const headers = githubApiHeaders(tokens.access_token);
+  const branchName = "omnimind-update-" + Date.now() + "-" + randomBytes(3).toString("hex");
+  const apiBase = "https://api.github.com/repos/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo);
+  try {
+    const branchResponse = await fetch(apiBase + "/git/refs", {
+      method: "POST", headers,
+      body: JSON.stringify({ ref: "refs/heads/" + branchName, sha: pending.baseSha }),
+      signal: AbortSignal.timeout(10_000)
+    });
+    const branchData = await branchResponse.json() as { message?: string };
+    if (!branchResponse.ok) return res.status(502).json({ error: branchData.message || "Could not create a dedicated change branch. No file was modified." });
+
+    const encodedPath = pending.path.split("/").map(encodeURIComponent).join("/");
+    const filePayload: Record<string, unknown> = {
+      message: pending.commitMessage,
+      content: Buffer.from(pending.content, "utf8").toString("base64"),
+      branch: branchName
+    };
+    if (pending.existingFileSha) filePayload.sha = pending.existingFileSha;
+    const fileResponse = await fetch(apiBase + "/contents/" + encodedPath, {
+      method: "PUT", headers, body: JSON.stringify(filePayload), signal: AbortSignal.timeout(12_000)
+    });
+    const fileData = await fileResponse.json() as { content?: { html_url?: string }; message?: string };
+    if (!fileResponse.ok) return res.status(502).json({
+      error: (fileData.message || "GitHub could not save the file.") + " A dedicated branch may exist: " + branchName,
+      branch: branchName
+    });
+
+    const prResponse = await fetch(apiBase + "/pulls", {
+      method: "POST", headers,
+      body: JSON.stringify({
+        title: pending.commitMessage,
+        head: branchName,
+        base: pending.baseBranch,
+        body: "## Proposed change\n\nUpdated " + pending.path + " through OmniMind after explicit user confirmation.\n\n- Base branch: " + pending.baseBranch + "\n- Changes are isolated on " + branchName + " for review.\n- Review the diff and run repository checks before merging."
+      }),
+      signal: AbortSignal.timeout(12_000)
+    });
+    const prData = await prResponse.json() as { number?: number; html_url?: string; message?: string };
+    if (!prResponse.ok) return res.status(502).json({
+      error: (prData.message || "File was committed to the new branch, but GitHub could not open the pull request.") + " Review branch " + branchName + " manually.",
+      branch: branchName,
+      fileUrl: fileData.content?.html_url
+    });
+    return res.status(201).json({
+      success: true, number: prData.number, url: prData.html_url, branch: branchName,
+      repository: pending.repository, path: pending.path, fileUrl: fileData.content?.html_url
+    });
+  } catch (error) {
+    console.error("GitHub file change execution failed:", error);
+    if (error instanceof Error && error.name === "TimeoutError") return res.status(504).json({ error: "GitHub timed out while applying the change. Check the generated branch before retrying to avoid duplicates." });
+    return res.status(502).json({ error: "GitHub file change failed. Check the repository branch before retrying." });
+  }
+});
+
 const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 const DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
