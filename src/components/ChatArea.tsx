@@ -21,6 +21,7 @@ interface ChatAreaProps {
   onOpenResearch: () => void;
   onOpenApps: () => void;
   onOpenMemory: () => void;
+  onOpenStudio: () => void;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
@@ -34,6 +35,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   isSidebarOpen,
   error,
   onOpenApps,
+  onOpenStudio,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -145,6 +147,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           title="Open connected apps"
         >
           Apps
+        </Button>
+        <Button
+          size="sm"
+          variant="quiet"
+          onClick={onOpenStudio}
+          aria-label="Open library and media studio"
+          title="Open Library, image generation, and video generation"
+        >
+          Studio
         </Button>
         {hasMessages && (
           <Button
