@@ -2526,6 +2526,35 @@ app.get("/api/apps/drive/files", async (req, res) => {
 });
 
 
+// Read-only Google Tasks integration. Fetch a bounded set of tasks from the first task list.
+app.get("/api/apps/tasks", async (_req, res) => {
+  try {
+    const accessToken = await getGoogleAccessToken("https://www.googleapis.com/auth/tasks.readonly");
+    const headers = { Authorization: `Bearer ${accessToken}` };
+    const listsResponse = await fetch("https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=100", { headers, signal: AbortSignal.timeout(12000) });
+    const listsData = await listsResponse.json() as { items?: Array<{ id: string; title: string; updated?: string }>; error?: { message?: string } };
+    if (!listsResponse.ok) {
+      if (listsResponse.status === 401 || listsResponse.status === 403) return res.status(listsResponse.status).json({ error: "Google Tasks access was denied. Reconnect Google and approve Tasks read-only permission." });
+      return res.status(502).json({ error: listsData.error?.message || "Google Tasks could not load task lists." });
+    }
+    const taskLists = (listsData.items || []).slice(0, 100);
+    const selectedList = taskLists[0];
+    if (!selectedList) return res.json({ taskLists: [], selectedListId: null, selectedListTitle: null, tasks: [] });
+    const tasksUrl = new URL(`https://tasks.googleapis.com/tasks/v1/lists/${encodeURIComponent(selectedList.id)}/tasks`);
+    tasksUrl.searchParams.set("maxResults", "30");
+    tasksUrl.searchParams.set("showCompleted", "false");
+    tasksUrl.searchParams.set("showHidden", "false");
+    tasksUrl.searchParams.set("order", "updated");
+    const tasksResponse = await fetch(tasksUrl, { headers, signal: AbortSignal.timeout(12000) });
+    const tasksData = await tasksResponse.json() as { items?: Array<{ id: string; title?: string; notes?: string; due?: string; status?: string; updated?: string }>; error?: { message?: string } };
+    if (!tasksResponse.ok) {
+      if (tasksResponse.status === 401 || tasksResponse.status === 403) return res.status(tasksResponse.status).json({ error: "Google Tasks could not read this list. Check the account Tasks permission." });
+      return res.status(502).json({ error: tasksData.error?.message || "Google Tasks could not load tasks." });
+    }
+    return res.json({ taskLists: taskLists.map(list => ({ id: list.id, title: list.title, updated: list.updated || "" })), selectedListId: selectedList.id, selectedListTitle: selectedList.title, tasks: (tasksData.items || []).filter(task => task.status !== "completed").map(task => ({ id: task.id, title: task.title || "(untitled task)", notes: task.notes || "", due: task.due || "", status: task.status || "needsAction", updated: task.updated || "" })) });
+  } catch (error) { return sendGoogleAppError(res, error); }
+});
+
 // Write actions require the matching OAuth write scope. The UI asks for explicit
 // confirmation before calling these endpoints; this server still validates every payload.
 app.post("/api/apps/gmail/send", async (req, res) => {

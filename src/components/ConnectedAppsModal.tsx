@@ -45,6 +45,8 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
   const [gmailMessages, setGmailMessages] = useState<Array<{ id: string; subject: string; from: string; date: string; snippet: string }>>([]);
   const [driveFiles, setDriveFiles] = useState<Array<{ id: string; name: string; mimeType?: string; modifiedTime?: string; webViewLink?: string }>>([]);
   const [calendarEvents, setCalendarEvents] = useState<Array<{ id: string; summary: string; start: string; end: string; htmlLink: string; location: string }>>([]);
+  const [googleTasks, setGoogleTasks] = useState<Array<{ id: string; title: string; notes: string; due: string; status: string }>>([]);
+  const [googleTaskListTitle, setGoogleTaskListTitle] = useState<string | null>(null);
   const [emailTo, setEmailTo] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
@@ -265,6 +267,26 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       }
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : "Could not load Google Calendar events.");
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  };
+
+  const loadGoogleTasks = async () => {
+    setWorkspaceLoading(true);
+    setWorkspaceError(null);
+    setGmailMessages([]);
+    setDriveFiles([]);
+    setCalendarEvents([]);
+    try {
+      const response = await fetch("/api/apps/tasks", { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not load Google Tasks.");
+      setGoogleTasks(Array.isArray(data.tasks) ? data.tasks : []);
+      setGoogleTaskListTitle(typeof data.selectedListTitle === "string" ? data.selectedListTitle : null);
+      if (!Array.isArray(data.tasks) || data.tasks.length === 0) setWorkspaceError("No open tasks found in your default Google Tasks list.");
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : "Could not load Google Tasks.");
     } finally {
       setWorkspaceLoading(false);
     }
@@ -556,6 +578,9 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
             <Button size="sm" variant="secondary" disabled={workspaceLoading || !googleAccountEmail} onClick={() => void loadCalendar()}>
               {workspaceLoading ? "Loading…" : "Upcoming Calendar"}
             </Button>
+            <Button size="sm" variant="secondary" disabled={workspaceLoading || !googleAccountEmail} onClick={() => void loadGoogleTasks()}>
+              {workspaceLoading ? "Loading…" : "Google Tasks"}
+            </Button>
             <input
               value={workspaceQuery}
               onChange={(event) => setWorkspaceQuery(event.target.value)}
@@ -569,6 +594,20 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
             </Button>
           </div>
           {workspaceError && <p role="alert" className="text-xs text-red-400">{workspaceError}</p>}
+          {googleTasks.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[10px] uppercase tracking-wider text-[var(--claude-text-muted)]">
+                Open Google Tasks{googleTaskListTitle ? ` · ${googleTaskListTitle}` : ""}
+              </p>
+              {googleTasks.map(task => (
+                <div key={task.id} className="rounded-lg border border-[var(--claude-border-subtle)] p-3">
+                  <p className="text-xs font-medium text-[var(--claude-text)]">{task.title}</p>
+                  {task.notes && <p className="mt-1 text-xs text-[var(--claude-text-secondary)] whitespace-pre-wrap">{task.notes}</p>}
+                  {task.due && <p className="mt-1 text-[10px] text-[var(--claude-text-muted)]">Due {new Date(task.due).toLocaleDateString()}</p>}
+                </div>
+              ))}
+            </div>
+          )}
           {gmailMessages.length > 0 && (
             <div className="space-y-2">
               <p className="text-[10px] uppercase tracking-wider text-[var(--claude-text-muted)]">Recent Gmail messages</p>
