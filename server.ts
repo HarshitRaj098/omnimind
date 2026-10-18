@@ -151,6 +151,7 @@ interface ScheduledTask {
   lastError?: string;
   runCount: number;
   runs?: ScheduledTaskRun[];
+  timeZone?: string;
 }
 
 interface ProjectSummary {
@@ -656,6 +657,49 @@ function saveScheduledTasks(tasks: ScheduledTask[]) {
 function appendScheduledTaskRun(task: ScheduledTask, run: ScheduledTaskRun) {
   const history = Array.isArray(task.runs) ? task.runs : [];
   task.runs = [run, ...history].slice(0, 10);
+}
+
+function getZonedDateParts(timestamp: number, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+  }).formatToParts(new Date(timestamp));
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return {
+    year: Number(values.year), month: Number(values.month), day: Number(values.day),
+    hour: Number(values.hour), minute: Number(values.minute), second: Number(values.second)
+  };
+}
+
+function nextZonedOccurrence(timestamp: number, frequency: "daily" | "weekly", timeZone: string): number {
+  const current = getZonedDateParts(timestamp, timeZone);
+  const days = frequency === "daily" ? 1 : 7;
+  const targetDate = new Date(Date.UTC(current.year, current.month - 1, current.day + days));
+  const target = {
+    year: targetDate.getUTCFullYear(), month: targetDate.getUTCMonth() + 1,
+    day: targetDate.getUTCDate(), hour: current.hour, minute: current.minute, second: current.second
+  };
+  const targetAsUtc = Date.UTC(target.year, target.month - 1, target.day, target.hour, target.minute, target.second);
+  let candidate = targetAsUtc;
+  // Convert the desired local wall-clock time to UTC, correcting for the zone offset.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const actual = getZonedDateParts(candidate, timeZone);
+    const actualAsUtc = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour, actual.minute, actual.second);
+    const correction = targetAsUtc - actualAsUtc;
+    if (correction === 0) break;
+    candidate += correction;
+  }
+  return candidate;
+}
+
+function advanceScheduledTaskNextRun(task: ScheduledTask, after: number) {
+  const timeZone = task.timeZone || "UTC";
+  let next = task.nextRunAt;
+  // Preserve the task's local wall-clock time across daylight-saving changes.
+  for (let attempt = 0; attempt < 1000 && next <= after; attempt++) {
+    next = nextZonedOccurrence(next, task.frequency === "weekly" ? "weekly" : "daily", timeZone);
+  }
+  task.nextRunAt = next > after ? next : after + (task.frequency === "weekly" ? 604800000 : 86400000);
 }
 
 function loadProjects(): ProjectSummary[] {
@@ -1204,12 +1248,20 @@ app.post("/api/scheduled-tasks", (req, res) => {
   const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim().slice(0, 2000) : "";
   const frequency = req.body?.frequency;
   const nextRunAt = Number(req.body?.nextRunAt);
+  const requestedTimeZone = typeof req.body?.timeZone === "string" ? req.body.timeZone.trim() : "UTC";
+  let timeZone = "UTC";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: requestedTimeZone }).format(new Date());
+    timeZone = requestedTimeZone;
+  } catch {
+    return res.status(400).json({ error: "Time zone must be a valid IANA time zone." });
+  }
   if (!title || !prompt) return res.status(400).json({ error: "Task title and instructions are required." });
   if (!["once", "daily", "weekly"].includes(frequency)) return res.status(400).json({ error: "Frequency must be once, daily, or weekly." });
   if (!Number.isFinite(nextRunAt) || nextRunAt < Date.now() - 60_000) return res.status(400).json({ error: "Choose a future run time." });
   const tasks = loadScheduledTasks();
   if (tasks.length >= 100) return res.status(429).json({ error: "Maximum of 100 scheduled tasks reached." });
-  const task: ScheduledTask = { id: "task_" + randomBytes(8).toString("hex"), title, prompt, frequency, nextRunAt, enabled: true, createdAt: Date.now(), runCount: 0 };
+  const task: ScheduledTask = { id: "task_" + randomBytes(8).toString("hex"), title, prompt, frequency, nextRunAt, timeZone, enabled: true, createdAt: Date.now(), runCount: 0 };
   tasks.push(task);
   saveScheduledTasks(tasks);
   return res.status(201).json(task);
@@ -1254,8 +1306,7 @@ app.post("/api/scheduled-tasks/:id/run", async (req, res) => {
     if (current.frequency === "once") {
       current.enabled = false;
     } else if (current.nextRunAt <= finishedAt) {
-      const step = current.frequency === "daily" ? 86400000 : 604800000;
-      do { current.nextRunAt += step; } while (current.nextRunAt <= finishedAt);
+      advanceScheduledTaskNextRun(current, finishedAt);
     }
     saveScheduledTasks(latest);
     return res.json({ task: { ...current, running: false }, startedAt, finishedAt });
@@ -1277,8 +1328,8 @@ app.post("/api/scheduled-tasks/:id/run", async (req, res) => {
         error: message.slice(0, 1500)
       });
       if (current.nextRunAt <= failedAt) {
-        const retryDelay = current.frequency === "weekly" ? 604800000 : 86400000;
-        current.nextRunAt = failedAt + retryDelay;
+        if (current.frequency === "once") current.enabled = false;
+        else advanceScheduledTaskNextRun(current, failedAt);
       }
       saveScheduledTasks(latest);
     }
@@ -2730,8 +2781,7 @@ setInterval(() => {
         if (current.frequency === "once") {
           current.enabled = false;
         } else {
-          const step = current.frequency === "daily" ? 86400000 : 604800000;
-          do { current.nextRunAt += step; } while (current.nextRunAt <= Date.now());
+          advanceScheduledTaskNextRun(current, Date.now());
         }
         saveScheduledTasks(latest);
       } catch (error) {
@@ -2751,9 +2801,9 @@ setInterval(() => {
             trigger: "scheduled",
             error: message.slice(0, 1500)
           });
-          // Retry once the next interval arrives; recurring tasks retain their intended cadence.
-          const step = current.frequency === "weekly" ? 604800000 : 86400000;
-          current.nextRunAt = Date.now() + step;
+          // Do not retry immediately; preserve the configured local schedule.
+          if (current.frequency === "once") current.enabled = false;
+          else advanceScheduledTaskNextRun(current, failedAt);
           saveScheduledTasks(latest);
         }
         console.error("Scheduled task execution failed:", task.id, error);

@@ -10,7 +10,7 @@ interface ScheduledTaskRun {
 interface ScheduledTask {
   id: string; title: string; prompt: string; frequency: Frequency; nextRunAt: number;
   enabled: boolean; createdAt: number; lastRunAt?: number; lastResult?: string; lastError?: string;
-  runCount: number; running?: boolean; runs?: ScheduledTaskRun[];
+  runCount: number; running?: boolean; runs?: ScheduledTaskRun[]; timeZone?: string;
 }
 interface ScheduledTasksModalProps { isOpen: boolean; onClose: () => void; }
 
@@ -65,7 +65,7 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
     try {
       const response = await fetch("/api/scheduled-tasks", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, prompt, frequency, nextRunAt: new Date(runAt).getTime() }),
+        body: JSON.stringify({ title, prompt, frequency, nextRunAt: new Date(runAt).getTime(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not schedule task.");
@@ -162,7 +162,7 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
                 <span className={task.enabled ? "text-xs text-emerald-500" : "text-xs text-[var(--claude-text-muted)]"}>{task.enabled ? "Active" : "Paused"}</span>
               </div>
               <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--claude-text-muted)]">
-                <span>{task.frequency}</span><span>·</span><span>Next: {task.enabled ? new Date(task.nextRunAt).toLocaleString() : "paused"}</span>
+                <span>{task.frequency}</span><span>·</span><span>Zone: {task.timeZone || "UTC"}</span><span>·</span><span>Next: {task.enabled ? new Date(task.nextRunAt).toLocaleString() : "paused"}</span>
                 {task.lastRunAt && <><span>·</span><span>Last run: {new Date(task.lastRunAt).toLocaleString()}</span></>}
               </div>
               {task.lastError && <p className="text-xs text-rose-500">{task.lastError}</p>}
