@@ -1914,7 +1914,7 @@ app.get("/api/apps/google/connect", (_req, res) => {
   authorizeUrl.searchParams.set("response_type", "code");
   authorizeUrl.searchParams.set("scope", GOOGLE_OAUTH_SCOPES.join(" "));
   authorizeUrl.searchParams.set("access_type", "offline");
-  authorizeUrl.searchParams.set("prompt", "consent");
+  authorizeUrl.searchParams.set("prompt", "select_account consent");
   authorizeUrl.searchParams.set("include_granted_scopes", "true");
   authorizeUrl.searchParams.set("state", state);
   return res.redirect(authorizeUrl.toString());
