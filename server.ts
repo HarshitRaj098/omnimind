@@ -474,7 +474,7 @@ function loadApps(): ConnectedApp[] {
     const connected = app.category === "google"
       ? Boolean(googleTokens) && app.scopes.every(scope => googleScopes.has(scope))
       : app.category === "github"
-        ? Boolean(githubTokens) && githubTokens.scopes.includes("read:user")
+        ? Boolean(githubTokens?.scopes.includes("read:user"))
         : false;
     return {
       ...app,
