@@ -750,7 +750,9 @@ app.delete("/api/conversations/:id", (req, res) => {
   const id = req.params.id;
   const convs = loadConversations();
   if (!convs.some(conversation => conversation.id === id)) {
-    return res.status(404).json({ error: "Conversation not found" });
+    // DELETE is idempotent: stale UI state or a retried request should not
+    // leave a ghost conversation visible just because it was already removed.
+    return res.json({ success: true, deletedId: id, alreadyDeleted: true });
   }
 
   const remaining = convs.filter(conversation => conversation.id !== id);
