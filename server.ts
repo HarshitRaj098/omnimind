@@ -1162,7 +1162,7 @@ app.get("/api/apps/status", (_req, res) => {
 app.get("/api/apps/google/diagnostics", (_req, res) => {
   const config = googleOAuthConfig();
   const tokens = loadGoogleOAuthTokens();
-  const grantedScopes = (tokens?.scope || "").split(/\\s+/).filter(Boolean);
+  const grantedScopes = (tokens?.scope || "").split(/\s+/).filter(Boolean);
   const missingScopes = GOOGLE_OAUTH_SCOPES.filter(scope => !grantedScopes.includes(scope));
   const callbackUri = config.redirectUri || null;
   res.setHeader("Cache-Control", "no-store");
