@@ -5,7 +5,7 @@ import { AppIcon, IconName } from "./AppIcon";
 interface ConnectedApp {
   id: string;
   name: string;
-  category: "google" | "youtube" | "whatsapp";
+  category: "google" | "youtube" | "whatsapp" | "github";
   connected: boolean;
   scopes: string[];
   lastConnected?: number;
@@ -26,6 +26,10 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
   const [testResult, setTestResult] = useState<string | null>(null);
   const [googleOAuthConfigured, setGoogleOAuthConfigured] = useState(false);
   const [googleAccountEmail, setGoogleAccountEmail] = useState<string | null>(null);
+  const [githubOAuthConfigured, setGithubOAuthConfigured] = useState(false);
+  const [githubLogin, setGithubLogin] = useState<string | null>(null);
+  const [githubRepos, setGithubRepos] = useState<Array<{ id: number; fullName: string; description?: string | null; url: string; language?: string | null; stars: number; updatedAt: string }>>([]);
+  const [githubLoading, setGithubLoading] = useState(false);
   const [workspaceQuery, setWorkspaceQuery] = useState("");
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -47,6 +51,8 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
         const status = await statusResponse.json();
         setGoogleOAuthConfigured(Boolean(status.googleOAuthConfigured));
         setGoogleAccountEmail(status.googleAccountEmail || null);
+        setGithubOAuthConfigured(Boolean(status.githubOAuthConfigured));
+        setGithubLogin(status.githubLogin || null);
       }
     } catch (e) {
       console.error("Failed to load connected apps", e);
@@ -55,6 +61,41 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
   };
 
   const connectGoogle = () => window.location.assign("/api/apps/google/connect");
+  const connectGitHub = () => window.location.assign("/api/apps/github/connect");
+
+  const loadGitHubRepos = async () => {
+    setGithubLoading(true);
+    setTestResult(null);
+    try {
+      const response = await fetch("/api/apps/github/repos", { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not load GitHub repositories.");
+      setGithubRepos(Array.isArray(data.repositories) ? data.repositories : []);
+      setGithubLogin(data.login || githubLogin);
+    } catch (error) {
+      setTestResult(error instanceof Error ? error.message : "Could not load GitHub repositories.");
+    } finally {
+      setGithubLoading(false);
+    }
+  };
+
+  const disconnectGitHub = async () => {
+    setLoading(true);
+    setTestResult(null);
+    try {
+      const response = await fetch("/api/apps/github/disconnect", { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not disconnect GitHub.");
+      setGithubLogin(null);
+      setGithubRepos([]);
+      setApps(prev => prev.map(app => app.id === "github" ? { ...app, connected: false, lastConnected: undefined } : app));
+      setTestResult("GitHub account disconnected from OmniMind.");
+    } catch (error) {
+      setTestResult(error instanceof Error ? error.message : "Could not disconnect GitHub.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loadInbox = async () => {
     setWorkspaceLoading(true);
@@ -166,6 +207,8 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
         return "calendar";
       case "youtube":
         return "youtube";
+      case "github":
+        return "globe";
       case "whatsapp":
         return "message";
       default:
@@ -188,6 +231,43 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       }
     >
       <div className="space-y-4">
+        <div className="rounded-xl border border-[var(--claude-border)] bg-[var(--claude-surface)] p-4 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 className="text-xs font-semibold text-[var(--claude-text)]">GitHub account</h3>
+              <p className="mt-1 text-[11px] text-[var(--claude-text-muted)]">
+                {githubLogin ? `Connected as @${githubLogin}. Profile access only; repository browsing is limited to public repositories.` : githubOAuthConfigured ? "Authorize your GitHub profile to connect your account." : "Configure GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, and APP_URL on the server first."}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {githubLogin ? (
+                <>
+                  <Button size="sm" variant="secondary" disabled={githubLoading} onClick={() => void loadGitHubRepos()}>{githubLoading ? "Loading…" : "Load public repositories"}</Button>
+                  <Button size="sm" variant="danger" disabled={loading} onClick={disconnectGitHub}>Disconnect GitHub</Button>
+                </>
+              ) : (
+                <Button size="sm" variant="primary" disabled={!githubOAuthConfigured || loading} onClick={connectGitHub}>Connect GitHub</Button>
+              )}
+            </div>
+          </div>
+          {githubRepos.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[10px] uppercase tracking-wider text-[var(--claude-text-muted)]">Public repositories · recently updated</p>
+              {githubRepos.map(repo => (
+                <div key={repo.id} className="rounded-lg border border-[var(--claude-border-subtle)] p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-[var(--claude-text)]">{repo.fullName}</p>
+                      {repo.description && <p className="mt-1 text-xs text-[var(--claude-text-secondary)]">{repo.description}</p>}
+                      <p className="mt-1 text-[10px] text-[var(--claude-text-muted)]">{repo.language || "Unspecified language"} · ★ {repo.stars} · Updated {new Date(repo.updatedAt).toLocaleDateString()}</p>
+                    </div>
+                    <a className="shrink-0 text-xs underline text-[var(--claude-text-secondary)]" href={repo.url} target="_blank" rel="noreferrer">Open</a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-[var(--claude-border)] bg-[var(--claude-surface)] p-4">
           <div>
             <h3 className="text-xs font-semibold text-[var(--claude-text)]">Google account</h3>
@@ -295,7 +375,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
                         {app.name}
                       </h3>
                       <p className="text-[10px] text-[var(--claude-text-muted)]">
-                        {isConnected ? (app.accountEmail || "Google account authorized") : app.category === "whatsapp" ? "Meta Business API setup required" : googleOAuthConfigured ? "Connect your Google account above" : "Google OAuth setup required"}
+                        {isConnected ? (app.category === "github" ? `GitHub @${githubLogin || "account"}` : app.accountEmail || "Google account authorized") : app.category === "whatsapp" ? "Meta Business API setup required" : app.category === "github" ? (githubOAuthConfigured ? "Connect GitHub above" : "GitHub OAuth setup required") : googleOAuthConfigured ? "Connect your Google account above" : "Google OAuth setup required"}
                       </p>
                     </div>
                   </div>
@@ -308,7 +388,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
 
                 <div className="pt-2 border-t border-[var(--claude-border-subtle)] flex items-center justify-between gap-2">
                   <span className="text-[10px] text-[var(--claude-text-muted)]">
-                    {isConnected ? `${app.scopes.length} authorized scopes` : app.category === "whatsapp" ? "Requires Meta credentials" : "Not authorized"}
+                    {isConnected ? `${app.scopes.length} authorized scopes` : app.category === "whatsapp" ? "Requires Meta credentials" : app.category === "github" ? "Profile access only" : "Not authorized"}
                   </span>
 
                   <div className="flex items-center gap-2">
@@ -317,7 +397,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
                       size="sm"
                       variant={isConnected ? "danger" : "secondary"}
                       disabled={loading || !isConnected}
-                      onClick={() => app.category === "whatsapp" ? toggleApp(app.id, isConnected) : disconnectGoogle()}
+                      onClick={() => app.category === "whatsapp" ? toggleApp(app.id, isConnected) : app.category === "github" ? disconnectGitHub() : disconnectGoogle()}
                     >
                       {isConnected ? "Disconnect account" : "Not connected"}
                     </Button>
