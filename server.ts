@@ -1287,10 +1287,14 @@ const GOOGLE_OAUTH_SCOPES = [
   "openid",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/drive.readonly",
   "https://www.googleapis.com/auth/documents.readonly",
+  "https://www.googleapis.com/auth/documents",
   "https://www.googleapis.com/auth/spreadsheets.readonly",
+  "https://www.googleapis.com/auth/spreadsheets",
   "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/tasks.readonly",
   "https://www.googleapis.com/auth/youtube.readonly"
 ];
@@ -1555,8 +1559,12 @@ app.get("/api/apps/github/repos", async (_req, res) => {
 });
 
 const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 const DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+const DOCS_WRITE_SCOPE = "https://www.googleapis.com/auth/documents";
+const SHEETS_WRITE_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 const CALENDAR_READ_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+const CALENDAR_WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 
 // Read-only Gmail access. The query uses Gmail's native search syntax.
 app.get("/api/apps/gmail/messages", async (req, res) => {
@@ -1699,6 +1707,151 @@ app.get("/api/apps/drive/files", async (req, res) => {
     }
     const data = await response.json() as { files?: Array<{ id: string; name: string; mimeType?: string; modifiedTime?: string; webViewLink?: string; size?: string }> };
     return res.json({ query, files: data.files || [] });
+  } catch (error) {
+    return sendGoogleAppError(res, error);
+  }
+});
+
+
+// Write actions require the matching OAuth write scope. The UI asks for explicit
+// confirmation before calling these endpoints; this server still validates every payload.
+app.post("/api/apps/gmail/send", async (req, res) => {
+  const to = typeof req.body?.to === "string" ? req.body.to.trim() : "";
+  const subject = typeof req.body?.subject === "string" ? req.body.subject.trim() : "";
+  const body = typeof req.body?.body === "string" ? req.body.body : "";
+  if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(to) || to.length > 254) {
+    return res.status(400).json({ error: "Enter a valid recipient email address." });
+  }
+  if (!subject || subject.length > 200 || /[\r\n]/.test(subject)) {
+    return res.status(400).json({ error: "Subject is required and must be 200 characters or fewer." });
+  }
+  if (!body.trim() || body.length > 20_000) {
+    return res.status(400).json({ error: "Email body is required and must be 20,000 characters or fewer." });
+  }
+  try {
+    const accessToken = await getGoogleAccessToken(GMAIL_SEND_SCOPE);
+    const mime = [
+      "To: " + to,
+      "Subject: " + subject.replace(/[^\x20-\x7E]/g, "?"),
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=UTF-8",
+      "Content-Transfer-Encoding: 8bit",
+      "",
+      body.replace(/\r?\n/g, "\r\n")
+    ].join("\r\n");
+    const raw = Buffer.from(mime, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" },
+      body: JSON.stringify({ raw }),
+      signal: AbortSignal.timeout(12_000)
+    });
+    const data = await response.json() as { id?: string; threadId?: string; error?: { message?: string } };
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        return res.status(response.status).json({ error: "Gmail send permission is missing or was denied. Reconnect Google and approve Gmail sending." });
+      }
+      return res.status(502).json({ error: data.error?.message || "Gmail could not send this message." });
+    }
+    return res.json({ success: true, messageId: data.id, threadId: data.threadId });
+  } catch (error) {
+    return sendGoogleAppError(res, error);
+  }
+});
+
+app.post("/api/apps/calendar/events", async (req, res) => {
+  const summary = typeof req.body?.summary === "string" ? req.body.summary.trim() : "";
+  const description = typeof req.body?.description === "string" ? req.body.description.slice(0, 4000) : "";
+  const location = typeof req.body?.location === "string" ? req.body.location.trim().slice(0, 500) : "";
+  const start = typeof req.body?.start === "string" ? req.body.start : "";
+  const end = typeof req.body?.end === "string" ? req.body.end : "";
+  const startMs = Date.parse(start);
+  const endMs = Date.parse(end);
+  if (!summary || summary.length > 200) return res.status(400).json({ error: "Event title is required and must be 200 characters or fewer." });
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    return res.status(400).json({ error: "Choose valid start and end times; the end must be after the start." });
+  }
+  try {
+    const accessToken = await getGoogleAccessToken(CALENDAR_WRITE_SCOPE);
+    const response = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        summary,
+        description,
+        location,
+        start: { dateTime: new Date(startMs).toISOString() },
+        end: { dateTime: new Date(endMs).toISOString() }
+      }),
+      signal: AbortSignal.timeout(12_000)
+    });
+    const data = await response.json() as { id?: string; htmlLink?: string; error?: { message?: string } };
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        return res.status(response.status).json({ error: "Calendar write permission is missing or was denied. Reconnect Google and approve Calendar event access." });
+      }
+      return res.status(502).json({ error: data.error?.message || "Google Calendar could not create this event." });
+    }
+    return res.status(201).json({ success: true, id: data.id, htmlLink: data.htmlLink });
+  } catch (error) {
+    return sendGoogleAppError(res, error);
+  }
+});
+
+app.post("/api/apps/docs/append", async (req, res) => {
+  const documentId = typeof req.body?.documentId === "string" ? req.body.documentId.trim() : "";
+  const textToAppend = typeof req.body?.text === "string" ? req.body.text : "";
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(documentId)) return res.status(400).json({ error: "Enter a valid Google Docs document ID." });
+  if (!textToAppend.trim() || textToAppend.length > 10_000) return res.status(400).json({ error: "Text is required and must be 10,000 characters or fewer." });
+  try {
+    const accessToken = await getGoogleAccessToken(DOCS_WRITE_SCOPE);
+    const response = await fetch("https://docs.googleapis.com/v1/documents/" + encodeURIComponent(documentId) + ":batchUpdate", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" },
+      body: JSON.stringify({ requests: [{ insertText: { endOfSegmentLocation: {}, text: "\n" + textToAppend } }] }),
+      signal: AbortSignal.timeout(12_000)
+    });
+    const data = await response.json() as { error?: { message?: string } };
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) return res.status(response.status).json({ error: "Google Docs write permission is missing. Reconnect Google and approve Docs editing." });
+      return res.status(502).json({ error: data.error?.message || "Google Docs could not update this document." });
+    }
+    return res.json({ success: true, documentId });
+  } catch (error) {
+    return sendGoogleAppError(res, error);
+  }
+});
+
+app.post("/api/apps/sheets/update", async (req, res) => {
+  const spreadsheetId = typeof req.body?.spreadsheetId === "string" ? req.body.spreadsheetId.trim() : "";
+  const range = typeof req.body?.range === "string" ? req.body.range.trim() : "";
+  const values = req.body?.values;
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(spreadsheetId)) return res.status(400).json({ error: "Enter a valid Google Sheets spreadsheet ID." });
+  if (!/^(?:'?[A-Za-z0-9 _-]{1,80}'?!)?[A-Z]{1,3}[1-9][0-9]*(?::[A-Z]{1,3}[1-9][0-9]*)?$/.test(range)) {
+    return res.status(400).json({ error: "Use a simple A1 range such as A1 or Sheet1!A1:B3." });
+  }
+  if (!Array.isArray(values) || values.length < 1 || values.length > 20 ||
+      values.some((row: unknown) => !Array.isArray(row) || row.length < 1 || row.length > 10 ||
+        row.some((cell: unknown) => typeof cell !== "string" || cell.length > 2000)) ||
+      values.reduce((sum: number, row: string[]) => sum + row.length, 0) > 200) {
+    return res.status(400).json({ error: "Provide up to 200 text cells across at most 20 rows and 10 columns." });
+  }
+  try {
+    const accessToken = await getGoogleAccessToken(SHEETS_WRITE_SCOPE);
+    const url = new URL("https://sheets.googleapis.com/v4/spreadsheets/" + encodeURIComponent(spreadsheetId) + "/values/" + encodeURIComponent(range));
+    url.searchParams.set("valueInputOption", "RAW");
+    const response = await fetch(url, {
+      method: "PUT",
+      headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" },
+      body: JSON.stringify({ range, majorDimension: "ROWS", values }),
+      signal: AbortSignal.timeout(12_000)
+    });
+    const data = await response.json() as { updatedCells?: number; error?: { message?: string } };
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) return res.status(response.status).json({ error: "Google Sheets write permission is missing. Reconnect Google and approve Sheets editing." });
+      return res.status(502).json({ error: data.error?.message || "Google Sheets could not update this range." });
+    }
+    return res.json({ success: true, updatedCells: data.updatedCells || 0, range });
   } catch (error) {
     return sendGoogleAppError(res, error);
   }
