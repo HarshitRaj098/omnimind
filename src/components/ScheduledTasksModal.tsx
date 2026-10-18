@@ -78,7 +78,7 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Scheduled Tasks"
       description="Persistent reminders and read-only connected-app checks. Tasks run while the OmniMind server is online."
-      icon={<AppIcon name="calendar-clock" size={18} />} maxWidth="2xl"
+      icon={<AppIcon name="calendar" size={18} />} maxWidth="2xl"
       footer={<Button variant="secondary" onClick={onClose}>Close</Button>}>
       <div className="space-y-4">
         {error && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-500">{error}</div>}
