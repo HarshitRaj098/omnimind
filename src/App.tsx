@@ -562,7 +562,20 @@ export default function App() {
         };
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not resolve the proposed action.");
+      const message = err instanceof Error ? err.message : "Could not resolve the proposed action.";
+      setError(message);
+      setActiveConversation(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          messages: prev.messages.map(msg => ({
+            ...msg,
+            pendingActions: msg.pendingActions?.map(action => action.id === actionId
+              ? { ...action, status: "failed", result: message }
+              : action)
+          }))
+        };
+      });
     }
   };
 
