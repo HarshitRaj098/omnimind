@@ -768,6 +768,55 @@ function getGeminiFallbackModel(primaryModel: string): string {
   return GEMINI_FALLBACK_MODEL;
 }
 
+/**
+ * In-memory circuit breaker for exhausted Gemini models. It prevents repeated
+ * requests from burning more quota while Google has already told us to wait.
+ * Cooldowns are intentionally process-local; restart clears them.
+ */
+const geminiQuotaCooldownUntil = new Map<string, number>();
+
+function getGeminiRetryDelayMs(error: unknown): number {
+  const value = error as any;
+  const message = String(value?.message || value || "");
+  const secondsMatch = message.match(/retryDelay["']?\s*:\s*["']?(\d+(?:\.\d+)?)s/i);
+  if (secondsMatch) return Math.min(24 * 60 * 60 * 1000, Math.max(1000, Number(secondsMatch[1]) * 1000));
+
+  const humanMatch = message.match(/retry in\s+(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+(?:\.\d+)?)s)?/i);
+  if (humanMatch && (humanMatch[1] || humanMatch[2] || humanMatch[3])) {
+    const seconds = Number(humanMatch[1] || 0) * 3600
+      + Number(humanMatch[2] || 0) * 60
+      + Number(humanMatch[3] || 0);
+    return Math.min(24 * 60 * 60 * 1000, Math.max(1000, seconds * 1000));
+  }
+  // If the provider supplies no retry delay, cool down briefly rather than
+  // assuming the quota will recover immediately.
+  return 60_000;
+}
+
+function markGeminiQuotaCooldown(model: string, error: unknown): void {
+  if (!isGeminiQuotaError(error)) return;
+  const until = Date.now() + getGeminiRetryDelayMs(error);
+  geminiQuotaCooldownUntil.set(model, Math.max(geminiQuotaCooldownUntil.get(model) || 0, until));
+}
+
+function getGeminiCooldownRemainingMs(model: string): number {
+  const until = geminiQuotaCooldownUntil.get(model) || 0;
+  if (until <= Date.now()) {
+    geminiQuotaCooldownUntil.delete(model);
+    return 0;
+  }
+  return until - Date.now();
+}
+
+function assertGeminiModelAvailable(model: string): void {
+  const remaining = getGeminiCooldownRemainingMs(model);
+  if (remaining <= 0) return;
+  const minutes = Math.max(1, Math.ceil(remaining / 60_000));
+  const error = new Error(`Gemini model ${model} is temporarily paused after a quota response. Retry in about ${minutes} minute(s).`);
+  (error as any).status = 429;
+  throw error;
+}
+
 // Persona profiles with Dragon Queen as paramount default
 const PERSONA_PROFILES: Record<string, string> = {
   dragon_queen: `You embody the Dragon Queen persona: regal, commanding, magnetic, and fiercely intelligent, with a softer, affectionate side for someone you trust.
@@ -2976,11 +3025,17 @@ async function executeScheduledTask(task: ScheduledTask): Promise<string> {
   const preferredModel = resolveGeminiChatModel(settings.model || GEMINI_FLASH_MODEL);
   const systemInstruction = "You are OmniMind's scheduled-task executor. Be factual, concise, and transparent about missing permissions or unavailable data. Never invent email, file, calendar, or execution results.";
   const run = async (model: string) => {
+    assertGeminiModelAvailable(model);
     const chat = ai.chats.create({
       model,
       config: { systemInstruction, temperature: 0.2 }
     });
-    return await chat.sendMessage({ message: [{ text: prompt }] });
+    try {
+      return await chat.sendMessage({ message: [{ text: prompt }] });
+    } catch (error) {
+      markGeminiQuotaCooldown(model, error);
+      throw error;
+    }
   };
 
   try {
@@ -3289,6 +3344,7 @@ app.post("/api/chat/stream", async (req, res) => {
 
     // Helper to initiate chat stream
     const initStream = async (targetModel: string, withSearch: boolean) => {
+      assertGeminiModelAvailable(targetModel);
       const toolsConfig = withSearch ? [{ googleSearch: {} }] : undefined;
       const chatSession = ai.chats.create({
         model: targetModel,
@@ -3299,9 +3355,14 @@ app.post("/api/chat/stream", async (req, res) => {
           tools: toolsConfig
         }
       });
-      return await chatSession.sendMessageStream({
-        message: messageParts.length > 0 ? messageParts : [{ text: "Hello" }]
-      });
+      try {
+        return await chatSession.sendMessageStream({
+          message: messageParts.length > 0 ? messageParts : [{ text: "Hello" }]
+        });
+      } catch (error) {
+        markGeminiQuotaCooldown(targetModel, error);
+        throw error;
+      }
     };
 
     try {
@@ -3423,7 +3484,14 @@ app.post("/api/chat/stream", async (req, res) => {
     let friendlyError = "Failed to generate response. Please try again.";
     const errMsg = err?.message || String(err);
     if (isGeminiQuotaError(err)) {
-      friendlyError = "Gemini API quota is exhausted for the selected model or its fallback. Check Google AI Studio usage and billing, or wait until the quota reset time reported by Google. Repeating the same request will not restore quota.";
+      const primaryRemaining = getGeminiCooldownRemainingMs(primaryModel);
+      const fallbackModel = getGeminiFallbackModel(primaryModel);
+      const fallbackRemaining = getGeminiCooldownRemainingMs(fallbackModel);
+      const remainingMs = Math.max(primaryRemaining, fallbackRemaining);
+      const remainingMinutes = Math.max(1, Math.ceil(remainingMs / 60_000));
+      friendlyError = remainingMs > 0
+        ? `Gemini quota cooldown is active. OmniMind has paused repeated requests to protect your quota. Try again in about ${remainingMinutes} minute(s), or check Google AI Studio usage and billing.`
+        : "Gemini API quota is exhausted for the selected model or its fallback. Check Google AI Studio usage and billing, or wait until the quota reset time reported by Google. Repeating the same request will not restore quota.";
     } else if (isGeminiModelUnavailableError(err)) {
       friendlyError = `Gemini model unavailable (${primaryModel}). Check model access in Google AI Studio or configure GEMINI_FLASH_MODEL / GEMINI_PRO_MODEL for a model enabled on your API project.`;
     } else if (errMsg.includes("API key") || errMsg.includes("API_KEY_INVALID")) {
