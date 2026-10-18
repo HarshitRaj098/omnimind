@@ -11,6 +11,7 @@ import { ShareModal } from "./components/ShareModal";
 import { VoiceModeModal } from "./components/VoiceModeModal";
 import { SharedConversationView } from "./components/SharedConversationView";
 import { MemoryWorkspaceModal } from "./components/MemoryWorkspaceModal";
+import { ScheduledTasksModal } from "./components/ScheduledTasksModal";
 
 export default function App() {
   const pathname = window.location.pathname;
@@ -33,6 +34,7 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAppsModalOpen, setIsAppsModalOpen] = useState(false);
+  const [isScheduledTasksModalOpen, setIsScheduledTasksModalOpen] = useState(false);
   const [isResearchModalOpen, setIsResearchModalOpen] = useState(false);
   const [isSkillsModalOpen, setIsSkillsModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
@@ -51,7 +53,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   
   const [settings, setSettings] = useState<AppSettings>({
-    model: "gemini-2.5-flash",
+    model: "gemini-3.8-flash",
     temperature: 0.7,
     systemInstruction: "",
     defaultPersona: "dragon_queen",
@@ -669,6 +671,7 @@ export default function App() {
           onOpenSkills={() => setIsSkillsModalOpen(true)}
           onOpenResearch={() => setIsResearchModalOpen(true)}
           onOpenApps={() => setIsAppsModalOpen(true)}
+          onOpenTasks={() => setIsScheduledTasksModalOpen(true)}
           onOpenMemory={() => setIsMemoryModalOpen(true)}
         />
 
@@ -700,6 +703,11 @@ export default function App() {
       <ConnectedAppsModal
         isOpen={isAppsModalOpen}
         onClose={() => setIsAppsModalOpen(false)}
+      />
+
+      <ScheduledTasksModal
+        isOpen={isScheduledTasksModalOpen}
+        onClose={() => setIsScheduledTasksModalOpen(false)}
       />
 
       {/* Research Workspace Modal */}
