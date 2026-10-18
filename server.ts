@@ -21,6 +21,9 @@ const GOOGLE_TOKENS_FILE = path.join(DATA_DIR, "google_oauth_tokens.json");
 const GITHUB_TOKENS_FILE = path.join(DATA_DIR, "github_oauth_tokens.json");
 const googleOAuthStates = new Map<string, number>();
 const githubOAuthStates = new Map<string, number>();
+type PendingChatWrite = { id: string; type: "gmail_send" | "calendar_create" | "google_tasks_create" | "google_tasks_complete"; payload: Record<string, unknown>; summary: string; details: string; status: "pending" | "confirmed" | "cancelled" | "failed"; createdAt: number };
+const pendingChatWrites = new Map<string, PendingChatWrite>();
+
 const FILES_INDEX_FILE = path.join(DATA_DIR, "file_index.json");
 const SKILLS_FILE = path.join(DATA_DIR, "skills.json");
 const SHARED_FILE = path.join(DATA_DIR, "shared_conversations.json");
@@ -2819,6 +2822,46 @@ app.post("/api/apps/:id/toggle", (req, res) => {
 });
 
 // Tool Execution Endpoint for Connected Apps with Read/Write Distinction
+app.post("/api/chat/action/confirm", async (req, res) => {
+  const id = typeof req.body?.id === "string" ? req.body.id : "";
+  const confirm = req.body?.confirm === true;
+  const pending = pendingChatWrites.get(id);
+  if (!pending) return res.status(404).json({ error: "This confirmation has expired or is unavailable." });
+  if (Date.now() - pending.createdAt > 15 * 60 * 1000) {
+    pendingChatWrites.delete(id);
+    return res.status(410).json({ error: "This confirmation expired. Ask OmniMind to prepare the action again." });
+  }
+  if (pending.status !== "pending") return res.status(409).json({ error: "This action has already been resolved.", status: pending.status });
+  if (!confirm) {
+    pending.status = "cancelled";
+    return res.json({ success: true, status: "cancelled", message: "Action cancelled; no external changes were made." });
+  }
+  const endpointByType: Record<PendingChatWrite["type"], string> = {
+    gmail_send: "/api/apps/gmail/send",
+    calendar_create: "/api/apps/calendar/events",
+    google_tasks_create: "/api/apps/tasks/create",
+    google_tasks_complete: "/api/apps/tasks/complete"
+  };
+  try {
+    const response = await fetch("http://127.0.0.1:" + PORT + endpointByType[pending.type], {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(pending.payload),
+      signal: AbortSignal.timeout(15000)
+    });
+    const data = await response.json().catch(() => ({ error: "The connected service returned an invalid response." }));
+    if (!response.ok) {
+      pending.status = "failed";
+      return res.status(response.status).json({ error: data.error || "The action failed.", status: "failed" });
+    }
+    pending.status = "confirmed";
+    return res.json({ success: true, status: "confirmed", result: data });
+  } catch (error) {
+    pending.status = "failed";
+    return res.status(502).json({ error: error instanceof Error ? error.message : "Could not execute the confirmed action.", status: "failed" });
+  }
+});
+
 app.post("/api/tools/execute", async (req, res) => {
   const name = typeof req.body?.name === "string" ? req.body.name : "";
   const args = req.body?.args && typeof req.body.args === "object" && !Array.isArray(req.body.args) ? req.body.args as Record<string, unknown> : {};
@@ -3730,6 +3773,7 @@ app.post("/api/chat/stream", async (req, res) => {
 
     let pendingStreams: any[] = [resultStream];
     let toolRounds = 0;
+    const pendingActionsForMessage: Array<{ id: string; type: PendingChatWrite["type"]; summary: string; details: string; status: "pending" }> = [];
     while (pendingStreams.length > 0 && !isAborted) {
       const currentStream = pendingStreams.shift();
       const requestedCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
@@ -3769,6 +3813,53 @@ app.post("/api/chat/stream", async (req, res) => {
       toolRounds++;
       const functionResponses: any[] = [];
       for (const call of requestedCalls.slice(0, 4)) {
+        if (["gmail_send", "calendar_create", "google_tasks_create", "google_tasks_complete"].includes(call.name)) {
+          const type = call.name as PendingChatWrite["type"];
+          const args = call.args;
+          let payload: Record<string, unknown>;
+          let summary = "";
+          let details = "";
+          if (type === "gmail_send") {
+            payload = { to: typeof args.to === "string" ? args.to.trim().slice(0, 254) : "", subject: typeof args.subject === "string" ? args.subject.slice(0, 200) : "", body: typeof args.body === "string" ? args.body.slice(0, 20000) : "" };
+            summary = "Send email";
+            details = "To: " + String(payload.to || "(missing recipient)") + "\nSubject: " + String(payload.subject || "(missing subject)") + "\n\n" + String(payload.body || "(missing body)");
+            if (!payload.to || !String(payload.to).includes("@") || !payload.subject || !String(payload.body).trim()) {
+              functionResponses.push({ functionResponse: { name: call.name, response: { error: "Recipient, subject, and body are required. Ask for missing details; nothing was sent." } } });
+              continue;
+            }
+          } else if (type === "calendar_create") {
+            payload = { summary: typeof args.summary === "string" ? args.summary.slice(0, 200) : "", description: typeof args.description === "string" ? args.description.slice(0, 4000) : "", location: typeof args.location === "string" ? args.location.slice(0, 500) : "", start: typeof args.start === "string" ? args.start.slice(0, 80) : "", end: typeof args.end === "string" ? args.end.slice(0, 80) : "" };
+            summary = "Create calendar event";
+            details = String(payload.summary || "(untitled event)") + "\nStart: " + String(payload.start || "(missing)") + "\nEnd: " + String(payload.end || "(missing)") + (payload.location ? "\nLocation: " + String(payload.location) : "");
+            if (!payload.summary || !payload.start || !payload.end) {
+              functionResponses.push({ functionResponse: { name: call.name, response: { error: "Event title, start, and end are required. Ask for missing details; no event was created." } } });
+              continue;
+            }
+          } else if (type === "google_tasks_create") {
+            payload = { listId: typeof args.listId === "string" && args.listId.trim() ? args.listId.trim().slice(0, 512) : "@default", title: typeof args.title === "string" ? args.title.slice(0, 1024) : "", notes: typeof args.notes === "string" ? args.notes.slice(0, 8000) : "" };
+            summary = "Create Google Task";
+            details = String(payload.title || "(missing task title)") + (payload.notes ? "\n" + String(payload.notes) : "") + "\nList: " + String(payload.listId);
+            if (!payload.title) {
+              functionResponses.push({ functionResponse: { name: call.name, response: { error: "Task title is required. Ask the user for it; no task was created." } } });
+              continue;
+            }
+          } else {
+            payload = { listId: typeof args.listId === "string" ? args.listId.slice(0, 512) : "", taskId: typeof args.taskId === "string" ? args.taskId.slice(0, 512) : "" };
+            summary = "Mark Google Task complete";
+            details = "Task ID: " + String(payload.taskId || "(missing task ID)") + "\nList: " + String(payload.listId || "(missing list)");
+            if (!payload.listId || !payload.taskId) {
+              functionResponses.push({ functionResponse: { name: call.name, response: { error: "Task list ID and task ID are required. Ask the user to identify the task; nothing was changed." } } });
+              continue;
+            }
+          }
+          const id = randomBytes(24).toString("hex");
+          pendingChatWrites.set(id, { id, type, payload, summary, details, status: "pending", createdAt: Date.now() });
+          const pendingAction = { id, type, summary, details, status: "pending" as const };
+          pendingActionsForMessage.push(pendingAction);
+          res.write("data: " + JSON.stringify({ actionConfirmation: pendingAction }) + "\n\n");
+          functionResponses.push({ functionResponse: { name: call.name, response: { status: "awaiting_confirmation", requiresConfirmation: true, message: "This action is prepared and shown to the user. Do not claim it was executed; wait for explicit confirmation." } } });
+          continue;
+        }
         try {
           const response = await fetch("http://127.0.0.1:" + PORT + "/api/tools/execute", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: call.name, args: call.args }), signal: AbortSignal.timeout(15000) });
           const payload = await response.json().catch(() => ({ error: "Connected-app tool returned invalid JSON." }));
@@ -3804,8 +3895,9 @@ app.post("/api/chat/stream", async (req, res) => {
       role: "model",
       content: fullModelResponse || "Response completed.",
       timestamp: Date.now(),
-      grounding: capturedGrounding || undefined
-    };
+      grounding: capturedGrounding || undefined,
+      pendingActions: pendingActionsForMessage
+    } as Message);
     conv.messages.push(modelMsg);
     conv.updatedAt = Date.now();
     saveConversations(convs);
