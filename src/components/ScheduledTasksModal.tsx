@@ -29,6 +29,8 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
   const [runningTaskIds, setRunningTaskIds] = useState<Set<string>>(() => new Set());
   const [editingTask, setEditingTask] = useState<{ id: string; title: string; prompt: string; frequency: Frequency; runAt: string } | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [bulkAction, setBulkAction] = useState<"pause" | "resume" | null>(null);
+  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
@@ -103,6 +105,34 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
     const refreshId = window.setInterval(() => void loadTasks(), 10000);
     return () => window.clearInterval(refreshId);
   }, [isOpen, loadTasks]);
+
+  const bulkUpdateTasks = async (action: "pause" | "resume") => {
+    const message = action === "pause"
+      ? "Pause every scheduled task that is not currently running?"
+      : "Resume eligible paused tasks? One-time tasks that already ran will stay paused.";
+    if (!window.confirm(message)) return;
+    setBulkAction(action);
+    setError(null);
+    setBulkMessage(null);
+    try {
+      const response = await fetch("/api/scheduled-tasks/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not update scheduled tasks.");
+      await loadTasks();
+      const summary = action === "pause"
+        ? `Paused ${data.changed} task(s); skipped ${data.skippedRunning} currently running.`
+        : `Resumed ${data.changed} task(s); skipped ${data.skippedRunning} running and ${data.skippedOneTimeAlreadyRun} one-time task(s) that already ran.`;
+      setBulkMessage(summary);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update scheduled tasks.");
+    } finally {
+      setBulkAction(null);
+    }
+  };
 
   const createTask = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -239,6 +269,17 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
             <Button type="submit" variant="primary" disabled={loading || !title.trim() || !prompt.trim()}>{loading ? "Saving…" : "Schedule task"}</Button>
           </div>
         </form>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--claude-border)] p-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium">Bulk controls</div>
+            <p className="mt-1 text-xs text-[var(--claude-text-muted)]">{tasks.filter(task => task.enabled).length} active · {tasks.filter(task => !task.enabled).length} paused · {tasks.filter(task => task.running).length} running</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" onClick={() => void bulkUpdateTasks("pause")} disabled={bulkAction !== null || tasks.every(task => !task.enabled)}> {bulkAction === "pause" ? "Pausing…" : "Pause all"} </Button>
+            <Button size="sm" variant="secondary" onClick={() => void bulkUpdateTasks("resume")} disabled={bulkAction !== null || tasks.every(task => task.enabled || (task.frequency === "once" && Boolean(task.lastRunAt)))}> {bulkAction === "resume" ? "Resuming…" : "Resume eligible"} </Button>
+          </div>
+        </div>
+        {bulkMessage && <div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-600">{bulkMessage}</div>}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-xs text-[var(--claude-text-muted)]">Back up task definitions without execution results or connected-account credentials. Imports are always paused.</div>
           <div className="flex gap-2">
