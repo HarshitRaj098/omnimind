@@ -387,7 +387,7 @@ class GoogleAppError extends Error {
 async function getGoogleAccessToken(requiredScope: string): Promise<string> {
   const tokens = loadGoogleOAuthTokens();
   if (!tokens) throw new GoogleAppError(401, "Connect a Google account first.");
-  const scopes = new Set((tokens.scope || "").split(/\\s+/).filter(Boolean));
+  const scopes = new Set((tokens.scope || "").split(/\s+/).filter(Boolean));
   if (!scopes.has(requiredScope)) {
     throw new GoogleAppError(403, "This Google account has not granted the required read-only permission. Disconnect and reconnect Google to review permissions.");
   }
