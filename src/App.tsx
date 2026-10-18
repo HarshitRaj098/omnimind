@@ -12,6 +12,7 @@ import { VoiceModeModal } from "./components/VoiceModeModal";
 import { SharedConversationView } from "./components/SharedConversationView";
 import { MemoryWorkspaceModal } from "./components/MemoryWorkspaceModal";
 import { ScheduledTasksModal } from "./components/ScheduledTasksModal";
+import { TaskNotificationsWatcher } from "./components/TaskNotificationsWatcher";
 
 export default function App() {
   const pathname = window.location.pathname;
@@ -639,6 +640,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-zinc-950 font-sans text-zinc-100">
+      <TaskNotificationsWatcher />
       {/* Sidebar */}
       <Sidebar
         conversations={conversations}
