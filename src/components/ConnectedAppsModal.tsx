@@ -340,7 +340,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
           <div>
             <h3 className="text-xs font-semibold text-[var(--claude-text)]">Google account</h3>
             <p className="mt-1 text-[11px] text-[var(--claude-text-muted)]">
-              {googleAccountEmail ? `Authorized as ${googleAccountEmail}` : googleOAuthConfigured ? "Authorize read-only access to supported Google services." : "Configure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and APP_URL on the server first."}
+              {googleAccountEmail ? `Authorized as ${googleAccountEmail}` : googleOAuthConfigured ? "Authorize the Google Workspace permissions you want OmniMind to use. Read and write actions require different scopes." : "Configure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and APP_URL on the server first."}
             </p>
           </div>
           {googleAccountEmail ? (
