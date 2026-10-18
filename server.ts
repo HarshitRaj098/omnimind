@@ -1836,6 +1836,7 @@ const GOOGLE_OAUTH_SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/tasks.readonly",
+  "https://www.googleapis.com/auth/tasks",
   "https://www.googleapis.com/auth/youtube.readonly"
 ];
 
@@ -2603,6 +2604,53 @@ app.get("/api/apps/tasks", async (req, res) => {
         due: task.due || "", status: task.status || "needsAction", updated: task.updated || ""
       }))
     });
+  } catch (error) { return sendGoogleAppError(res, error); }
+});
+
+// Create a Google Task. The UI asks for explicit confirmation before calling this write endpoint.
+app.post("/api/apps/tasks/create", async (req, res) => {
+  const listId = typeof req.body?.listId === "string" ? req.body.listId.trim() : "";
+  const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+  const notes = typeof req.body?.notes === "string" ? req.body.notes : "";
+  if (!listId || listId.length > 512) return res.status(400).json({ error: "Choose a valid Google Tasks list." });
+  if (!title || title.length > 1024) return res.status(400).json({ error: "Task title is required and must be 1,024 characters or fewer." });
+  if (notes.length > 8000) return res.status(400).json({ error: "Task notes must be 8,000 characters or fewer." });
+  try {
+    const accessToken = await getGoogleAccessToken("https://www.googleapis.com/auth/tasks");
+    const headers = { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" };
+    const listsResponse = await fetch("https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=100", { headers, signal: AbortSignal.timeout(12000) });
+    const listsData = await listsResponse.json() as { items?: Array<{ id: string; title: string }>; error?: { message?: string } };
+    if (!listsResponse.ok) return res.status(listsResponse.status === 401 || listsResponse.status === 403 ? listsResponse.status : 502).json({ error: listsData.error?.message || "Could not verify Google Tasks list." });
+    const list = (listsData.items || []).find(item => item.id === listId);
+    if (!list) return res.status(400).json({ error: "That Google Tasks list is not available for the connected account." });
+    const response = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${encodeURIComponent(listId)}/tasks`, {
+      method: "POST", headers, body: JSON.stringify({ title, ...(notes.trim() ? { notes } : {}) }),
+      signal: AbortSignal.timeout(12000)
+    });
+    const data = await response.json() as { id?: string; title?: string; error?: { message?: string } };
+    if (!response.ok) return res.status(response.status === 401 || response.status === 403 ? response.status : 502).json({ error: data.error?.message || "Google Tasks could not create the task." });
+    return res.status(201).json({ success: true, task: { id: data.id, title: data.title || title }, listTitle: list.title });
+  } catch (error) { return sendGoogleAppError(res, error); }
+});
+
+// Mark a task complete. The API scopes the task under the selected, verified list.
+app.post("/api/apps/tasks/complete", async (req, res) => {
+  const listId = typeof req.body?.listId === "string" ? req.body.listId.trim() : "";
+  const taskId = typeof req.body?.taskId === "string" ? req.body.taskId.trim() : "";
+  if (!listId || listId.length > 512 || !taskId || taskId.length > 512) return res.status(400).json({ error: "A valid task and task list are required." });
+  try {
+    const accessToken = await getGoogleAccessToken("https://www.googleapis.com/auth/tasks");
+    const headers = { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" };
+    const listsResponse = await fetch("https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=100", { headers, signal: AbortSignal.timeout(12000) });
+    const listsData = await listsResponse.json() as { items?: Array<{ id: string }>; error?: { message?: string } };
+    if (!listsResponse.ok) return res.status(listsResponse.status === 401 || listsResponse.status === 403 ? listsResponse.status : 502).json({ error: listsData.error?.message || "Could not verify Google Tasks list." });
+    if (!(listsData.items || []).some(item => item.id === listId)) return res.status(400).json({ error: "That Google Tasks list is not available for the connected account." });
+    const response = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${encodeURIComponent(listId)}/tasks/${encodeURIComponent(taskId)}`, {
+      method: "PATCH", headers, body: JSON.stringify({ status: "completed" }), signal: AbortSignal.timeout(12000)
+    });
+    const data = await response.json() as { id?: string; title?: string; status?: string; error?: { message?: string } };
+    if (!response.ok) return res.status(response.status === 401 || response.status === 403 || response.status === 404 ? response.status : 502).json({ error: data.error?.message || "Google Tasks could not complete this task." });
+    return res.json({ success: true, task: { id: data.id, title: data.title || "", status: data.status || "completed" } });
   } catch (error) { return sendGoogleAppError(res, error); }
 });
 
