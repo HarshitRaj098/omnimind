@@ -170,11 +170,11 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       if (!prepareResponse.ok) throw new Error(prepared.error || "Could not prepare GitHub file change.");
       const preview = prepared.preview as { repository: string; path: string; baseBranch: string; commitMessage: string; contentPreview: string; contentLength: number; updatingExistingFile: boolean };
       const confirmed = window.confirm(
-        "Create a GitHub branch and pull request?\\n\\nRepository: " + preview.repository +
-        "\\nFile: " + preview.path + (preview.updatingExistingFile ? " (update existing file)" : " (new file)") +
-        "\\nBase branch: " + preview.baseBranch + "\\nPR title: " + preview.commitMessage +
-        "\\nContent length: " + preview.contentLength + " characters\\n\\nPreview (first 1200 characters):\\n" +
-        preview.contentPreview + "\\n\\nThis creates a branch and opens a PR; it does not merge into the base branch. Confirmation expires in five minutes."
+        "Create a GitHub branch and pull request?\n\nRepository: " + preview.repository +
+        "\nFile: " + preview.path + (preview.updatingExistingFile ? " (update existing file)" : " (new file)") +
+        "\nBase branch: " + preview.baseBranch + "\nPR title: " + preview.commitMessage +
+        "\nContent length: " + preview.contentLength + " characters\n\nPreview (first 1200 characters):\n" +
+        preview.contentPreview + "\n\nThis creates a branch and opens a PR; it does not merge into the base branch. Confirmation expires in five minutes."
       );
       if (!confirmed) {
         setTestResult("File change cancelled. No branch or pull request was created.");
