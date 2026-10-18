@@ -92,25 +92,6 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
     }
   };
 
-  const testTool = async (toolName: string, label: string) => {
-    setTestResult(`Testing ${label}...`);
-    try {
-      const res = await fetch("/api/tools/execute", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: toolName, args: { query: "test" } }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        setTestResult(`Error: ${label} - ${data.error}`);
-      } else {
-        setTestResult(`Success: ${label} response received.`);
-      }
-    } catch (e: any) {
-      setTestResult(`Failure: ${e.message}`);
-    }
-  };
-
   const getAppIconName = (id: string): IconName => {
     switch (id) {
       case "gmail":
