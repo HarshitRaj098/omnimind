@@ -3,9 +3,14 @@ import { Modal, Button, Input, Textarea } from "./ui";
 import { AppIcon } from "./AppIcon";
 
 type Frequency = "once" | "daily" | "weekly";
+interface ScheduledTaskRun {
+  id: string; startedAt: number; finishedAt: number; status: "success" | "failed";
+  trigger: "manual" | "scheduled"; result?: string; error?: string;
+}
 interface ScheduledTask {
   id: string; title: string; prompt: string; frequency: Frequency; nextRunAt: number;
-  enabled: boolean; createdAt: number; lastRunAt?: number; lastResult?: string; lastError?: string; runCount: number; running?: boolean;
+  enabled: boolean; createdAt: number; lastRunAt?: number; lastResult?: string; lastError?: string;
+  runCount: number; running?: boolean; runs?: ScheduledTaskRun[];
 }
 interface ScheduledTasksModalProps { isOpen: boolean; onClose: () => void; }
 
@@ -162,6 +167,16 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
               </div>
               {task.lastError && <p className="text-xs text-rose-500">{task.lastError}</p>}
               {task.lastResult && <pre className="max-h-36 overflow-auto whitespace-pre-wrap rounded-lg bg-[var(--claude-bg)] p-2 text-xs">{task.lastResult}</pre>}
+              {task.runs?.length ? <div className="border-t border-[var(--claude-border)] pt-2">
+                <div className="mb-2 text-xs font-medium text-[var(--claude-text-muted)]">Recent runs · {task.runCount} total</div>
+                <div className="space-y-2">{task.runs.slice(0, 3).map(run => <div key={run.id} className="flex items-start gap-2 text-xs">
+                  <span className={run.status === "success" ? "text-emerald-500" : "text-rose-500"}>{run.status === "success" ? "Success" : "Failed"}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[var(--claude-text-muted)]">{run.trigger === "manual" ? "Manual" : "Scheduled"} · {new Date(run.finishedAt).toLocaleString()}</div>
+                    {(run.error || run.result) && <p className="mt-1 whitespace-pre-wrap break-words text-[var(--claude-text-muted)]">{run.error || run.result}</p>}
+                  </div>
+                </div>)}</div>
+              </div> : <p className="text-xs text-[var(--claude-text-muted)]">No execution history yet · {task.runCount} runs</p>}
               <div className="flex flex-wrap justify-end gap-2"><Button size="sm" variant="secondary" onClick={() => void runTaskNow(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{runningTaskIds.has(task.id) || task.running ? "Running…" : "Run now"}</Button><Button size="sm" variant="quiet" onClick={() => void toggleTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{task.enabled ? "Pause" : "Resume"}</Button><Button size="sm" variant="quiet" onClick={() => void deleteTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>Delete</Button></div>
             </article>
           ))}
