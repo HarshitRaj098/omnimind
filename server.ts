@@ -17,6 +17,7 @@ const CONV_FILE = path.join(DATA_DIR, "conversations.json");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 const APPS_FILE = path.join(DATA_DIR, "connected_apps.json");
 const FILES_INDEX_FILE = path.join(DATA_DIR, "file_index.json");
+const LIBRARY_DIR = path.join(DATA_DIR, "library");
 const SKILLS_FILE = path.join(DATA_DIR, "skills.json");
 const SHARED_FILE = path.join(DATA_DIR, "shared_conversations.json");
 const MEMORIES_FILE = path.join(DATA_DIR, "memories.json");
@@ -26,6 +27,7 @@ const PROJECTS_FILE = path.join(DATA_DIR, "projects.json");
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
+fs.mkdirSync(LIBRARY_DIR, { recursive: true });
 
 interface GroundingSource {
   title: string;
@@ -84,6 +86,9 @@ interface IndexedFile {
   type: string;
   contentSnippet?: string;
   uploadedAt: number;
+  mimeType?: string;
+  kind?: "file" | "image" | "video";
+  storageName?: string;
 }
 
 interface Skill {
@@ -391,11 +396,9 @@ function loadFileIndex(): IndexedFile[] {
 }
 
 function saveFileIndex(files: IndexedFile[]) {
-  try {
-    fs.writeFileSync(FILES_INDEX_FILE, JSON.stringify(files, null, 2), "utf-8");
-  } catch (e) {
-    console.error("Error saving file index:", e);
-  }
+  const tempPath = `${FILES_INDEX_FILE}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify(files, null, 2), "utf-8");
+  fs.renameSync(tempPath, FILES_INDEX_FILE);
 }
 
 function loadSettings() {
@@ -925,89 +928,221 @@ app.post("/api/tools/execute", async (req, res) => {
   });
 });
 
-// Files & ZIP Engine Endpoints
-app.get("/api/files", (req, res) => {
-  res.json(loadFileIndex());
+// Persistent Library, ZIP extraction, and media generation.
+app.get("/api/files", (_req, res) => {
+  res.json(loadFileIndex().map(({ storageName: _storageName, ...item }) => item));
 });
+
+const mimeForExtension = (extension: string) => ({
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".webp": "image/webp", ".gif": "image/gif", ".svg": "image/svg+xml",
+  ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+  ".pdf": "application/pdf", ".txt": "text/plain", ".md": "text/markdown",
+  ".json": "application/json", ".csv": "text/csv"
+}[extension.toLowerCase()] || "application/octet-stream");
+
+const persistLibraryAsset = (input: {
+  name: string; buffer: Buffer; mimeType: string; kind?: "file" | "image" | "video";
+  contentSnippet?: string; pathLabel?: string;
+}): IndexedFile => {
+  const id = "file_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8);
+  const extension = path.extname(input.name).toLowerCase().slice(0, 12);
+  const storageName = id + (extension || ".bin");
+  const destination = path.join(LIBRARY_DIR, storageName);
+  const temporary = destination + ".tmp";
+  fs.writeFileSync(temporary, input.buffer);
+  fs.renameSync(temporary, destination);
+  const item: IndexedFile = {
+    id, name: path.basename(input.name).slice(0, 180) || "untitled",
+    path: input.pathLabel || path.basename(input.name),
+    size: input.buffer.length,
+    type: extension ? extension.slice(1).toUpperCase() : "FILE",
+    mimeType: input.mimeType || mimeForExtension(extension),
+    kind: input.kind || (input.mimeType.startsWith("image/") ? "image" : input.mimeType.startsWith("video/") ? "video" : "file"),
+    storageName,
+    contentSnippet: input.contentSnippet || "",
+    uploadedAt: Date.now()
+  };
+  try {
+    const files = loadFileIndex();
+    files.unshift(item);
+    saveFileIndex(files);
+    return item;
+  } catch (error) {
+    try { fs.unlinkSync(destination); } catch {}
+    throw error;
+  }
+};
 
 app.post("/api/files/upload", async (req, res) => {
   try {
-    const { name, mimeType, data } = req.body;
-    if (!name || !data) {
-      return res.status(400).json({ error: "Name and data are required" });
+    const { name, mimeType = "application/octet-stream", data } = req.body;
+    if (typeof name !== "string" || !name.trim() || typeof data !== "string") {
+      return res.status(400).json({ error: "A file name and base64 data are required." });
     }
-
-    const fileIndex = loadFileIndex();
-    const base64Data = data.includes("base64,") ? data.split("base64,")[1] : data;
+    const base64Data = data.includes("base64,") ? data.split("base64,").pop() || "" : data;
     const buffer = Buffer.from(base64Data, "base64");
+    if (!buffer.length) return res.status(400).json({ error: "The uploaded file is empty or invalid." });
+    if (buffer.length > 25 * 1024 * 1024) return res.status(413).json({ error: "Files must be 25 MB or smaller." });
 
-    const isZip = name.toLowerCase().endsWith(".zip") || mimeType === "application/zip" || mimeType === "application/x-zip-compressed";
-
+    const safeName = path.basename(name.replace(/\\/g, "/"));
+    const isZip = safeName.toLowerCase().endsWith(".zip") || mimeType === "application/zip" || mimeType === "application/x-zip-compressed";
     if (isZip) {
       const zip = new AdmZip(buffer);
-      const zipEntries = zip.getEntries();
-      const extractedCount = zipEntries.length;
-
-      for (const entry of zipEntries) {
-        if (!entry.isDirectory) {
-          const entryName = entry.entryName;
-          const entryExt = path.extname(entryName).toLowerCase();
-          let snippet = "";
-          
-          if ([".txt", ".json", ".ts", ".tsx", ".js", ".jsx", ".md", ".py", ".html", ".css", ".csv"].includes(entryExt)) {
-            snippet = entry.getData().toString("utf8").substring(0, 400);
-          } else {
-            snippet = `Binary asset extracted from ${name}`;
-          }
-
-          fileIndex.unshift({
-            id: "file_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
-            name: path.basename(entryName),
-            path: `${name}/${entryName}`,
-            size: entry.header.size,
-            type: entryExt ? entryExt.replace(".", "").toUpperCase() : "FILE",
-            contentSnippet: snippet,
-            uploadedAt: Date.now()
-          });
+      const entries = zip.getEntries().filter((entry) => !entry.isDirectory);
+      if (entries.length > 500) return res.status(413).json({ error: "Archives may contain at most 500 files." });
+      const extracted: IndexedFile[] = [];
+      let totalBytes = 0;
+      for (const entry of entries) {
+        const entryBuffer = entry.getData();
+        totalBytes += entryBuffer.length;
+        if (entryBuffer.length > 25 * 1024 * 1024 || totalBytes > 100 * 1024 * 1024) {
+          throw new Error("Archive extraction exceeds the 100 MB safety limit.");
         }
+        const entryName = path.basename(entry.entryName.replace(/\\/g, "/")) || "archive-file";
+        const extension = path.extname(entryName).toLowerCase();
+        const snippet = [".txt", ".json", ".ts", ".tsx", ".js", ".jsx", ".md", ".py", ".html", ".css", ".csv"].includes(extension)
+          ? entryBuffer.toString("utf8").substring(0, 1200)
+          : `Extracted from ${safeName}`;
+        extracted.push(persistLibraryAsset({
+          name: entryName, pathLabel: `${safeName}/${entry.entryName}`, buffer: entryBuffer,
+          mimeType: mimeForExtension(extension), contentSnippet: snippet
+        }));
       }
-
-      saveFileIndex(fileIndex);
-      return res.json({ success: true, isZip: true, extractedCount, filesCount: fileIndex.length });
-    } else {
-      const ext = path.extname(name).toLowerCase();
-      let snippet = "";
-      if ([".txt", ".json", ".ts", ".tsx", ".js", ".jsx", ".md", ".py", ".html", ".css", ".csv"].includes(ext)) {
-        snippet = buffer.toString("utf8").substring(0, 400);
-      } else {
-        snippet = `${name} (${mimeType || "application/octet-stream"})`;
-      }
-
-      const newFile: IndexedFile = {
-        id: "file_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
-        name,
-        path: name,
-        size: buffer.length,
-        type: ext ? ext.replace(".", "").toUpperCase() : "DOC",
-        contentSnippet: snippet,
-        uploadedAt: Date.now()
-      };
-
-      fileIndex.unshift(newFile);
-      saveFileIndex(fileIndex);
-      return res.json(newFile);
+      return res.json({ success: true, isZip: true, extractedCount: extracted.length, filesCount: loadFileIndex().length });
     }
+
+    const extension = path.extname(safeName).toLowerCase();
+    const snippet = [".txt", ".json", ".ts", ".tsx", ".js", ".jsx", ".md", ".py", ".html", ".css", ".csv"].includes(extension)
+      ? buffer.toString("utf8").substring(0, 1200)
+      : `${safeName} (${mimeType})`;
+    const item = persistLibraryAsset({
+      name: safeName, buffer, mimeType, contentSnippet: snippet
+    });
+    const { storageName: _storageName, ...publicItem } = item;
+    return res.json(publicItem);
   } catch (err: any) {
-    console.error("Upload error:", err);
-    res.status(500).json({ error: err.message || "Failed to process upload" });
+    console.error("Library upload failed:", err);
+    return res.status(500).json({ error: err.message || "Failed to save file to the library." });
   }
 });
 
+app.get("/api/files/:id/content", (req, res) => {
+  const item = loadFileIndex().find((file) => file.id === req.params.id);
+  if (!item) return res.status(404).json({ error: "Library item not found." });
+  if (!item.storageName) return res.status(410).json({ error: "This older library entry has no stored file. Please upload it again." });
+  const storageName = path.basename(item.storageName);
+  const filePath = path.join(LIBRARY_DIR, storageName);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: "Stored library content is missing." });
+  res.setHeader("Content-Type", item.mimeType || mimeForExtension(path.extname(item.name)));
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  return res.sendFile(filePath);
+});
+
 app.delete("/api/files/:id", (req, res) => {
-  let fileIndex = loadFileIndex();
-  fileIndex = fileIndex.filter(f => f.id !== req.params.id);
-  saveFileIndex(fileIndex);
-  res.json({ success: true });
+  const files = loadFileIndex();
+  const item = files.find((file) => file.id === req.params.id);
+  if (!item) return res.status(404).json({ error: "Library item not found." });
+  const remaining = files.filter((file) => file.id !== req.params.id);
+  try {
+    saveFileIndex(remaining);
+    if (item.storageName) {
+      const filePath = path.join(LIBRARY_DIR, path.basename(item.storageName));
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    }
+    return res.json({ success: true, deletedId: item.id });
+  } catch (error: any) {
+    console.error("Library delete failed:", error);
+    return res.status(500).json({ error: "Could not delete this library item." });
+  }
+});
+
+app.post("/api/media/image", async (req, res) => {
+  const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+  if (!prompt) return res.status(400).json({ error: "Describe the image you want to generate." });
+  if (prompt.length > 3000) return res.status(400).json({ error: "Image prompts must be 3,000 characters or shorter." });
+  if (!apiKey) return res.status(503).json({ error: "Image generation is not configured. Set GEMINI_API_KEY on the server." });
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-image",
+      contents: prompt,
+      config: { responseModalities: ["IMAGE", "TEXT"] }
+    });
+    const parts = response.candidates?.flatMap((candidate: any) => candidate.content?.parts || []) || [];
+    const imagePart = parts.find((part: any) => part.inlineData?.data && String(part.inlineData.mimeType || "").startsWith("image/"));
+    if (!imagePart?.inlineData?.data) {
+      const explanation = parts.find((part: any) => part.text)?.text;
+      throw new Error(explanation || "The image model did not return an image. Check model access and API quota.");
+    }
+    const mimeType = imagePart.inlineData.mimeType || "image/png";
+    const extension = mimeType === "image/jpeg" ? ".jpg" : mimeType === "image/webp" ? ".webp" : ".png";
+    const item = persistLibraryAsset({
+      name: `generated-image-${new Date().toISOString().replace(/[:.]/g, "-")}${extension}`,
+      buffer: Buffer.from(imagePart.inlineData.data, "base64"),
+      mimeType, kind: "image", contentSnippet: prompt
+    });
+    const { storageName: _storageName, ...publicItem } = item;
+    return res.json(publicItem);
+  } catch (error: any) {
+    console.error("Image generation failed:", error);
+    return res.status(502).json({ error: error.message || "Image generation failed. Check Gemini API access and quota." });
+  }
+});
+
+app.post("/api/media/video", async (req, res) => {
+  const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+  if (!prompt) return res.status(400).json({ error: "Describe the video you want to generate." });
+  if (prompt.length > 3000) return res.status(400).json({ error: "Video prompts must be 3,000 characters or shorter." });
+  if (!apiKey) return res.status(503).json({ error: "Video generation is not configured. Set GEMINI_API_KEY on the server." });
+  let temporaryPath = "";
+  try {
+    let operation = await ai.models.generateVideos({
+      model: "veo-3.1-fast-generate-preview",
+      prompt,
+      config: { numberOfVideos: 1, resolution: "720p" }
+    });
+    let polls = 0;
+    while (!operation.done && polls < 120) {
+      await new Promise((resolve) => setTimeout(resolve, 10000));
+      operation = await ai.operations.getVideosOperation({ operation });
+      polls += 1;
+    }
+    if (!operation.done) throw new Error("Video generation is taking longer than expected. Please try again later.");
+    if (operation.error) throw new Error(String((operation.error as any).message || "Video generation failed."));
+    const generatedVideo = operation.response?.generatedVideos?.[0]?.video;
+    if (!generatedVideo) throw new Error("The video model completed without returning a video.");
+    const id = "file_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8);
+    const storageName = id + ".mp4";
+    const outputPath = path.join(LIBRARY_DIR, storageName);
+    temporaryPath = outputPath + ".tmp.mp4";
+    await ai.files.download({ file: generatedVideo, downloadPath: temporaryPath });
+    if (!fs.existsSync(temporaryPath) || fs.statSync(temporaryPath).size === 0) {
+      throw new Error("The video model returned no downloadable video data.");
+    }
+    fs.renameSync(temporaryPath, outputPath);
+    const item: IndexedFile = {
+      id, name: `generated-video-${new Date().toISOString().replace(/[:.]/g, "-")}.mp4`,
+      path: `generated-video-${Date.now()}.mp4`, size: fs.statSync(outputPath).size,
+      type: "MP4", mimeType: "video/mp4", kind: "video", storageName,
+      contentSnippet: prompt, uploadedAt: Date.now()
+    };
+    try {
+      const files = loadFileIndex();
+      files.unshift(item);
+      saveFileIndex(files);
+    } catch (error) {
+      try { fs.unlinkSync(outputPath); } catch {}
+      throw error;
+    }
+    const { storageName: _storageName, ...publicItem } = item;
+    return res.json(publicItem);
+  } catch (error: any) {
+    if (temporaryPath && fs.existsSync(temporaryPath)) {
+      try { fs.unlinkSync(temporaryPath); } catch {}
+    }
+    console.error("Video generation failed:", error);
+    return res.status(502).json({ error: error.message || "Video generation failed. Check Veo access and API quota." });
+  }
 });
 
 // Universal Research & Crawler Endpoint
