@@ -3148,14 +3148,14 @@ app.delete("/api/skills/:id", (req, res) => {
 async function buildConnectedAppToolContext(message: string): Promise<string> {
   const wantsGmail = /\b(gmail|inbox|emails?|mail messages?)\b/i.test(message) &&
     /\b(find|search|show|list|read|check|latest|recent|unread|invoice|receipt|from|subject|message|what|have)\b/i.test(message);
-  const wantsDrive = /\\b(google\\s+drive|drive files?|in drive|google docs?|google sheets?|spreadsheets?|document in drive|spreadsheet in drive)\\b/i.test(message) &&
-    /\\b(find|search|show|list|open|read|summari[sz]e|latest|recent|locate|where|invoice|report|resume|document|file|contents?|values?)\\b/i.test(message);
-  const wantsCalendar = /\\b(calendar|upcoming events?|meetings?|events?)\\b/i.test(message) &&
-    /\\b(show|list|find|check|what|upcoming|next|schedule|today|tomorrow|week|month)\\b/i.test(message);
-  const wantsGoogleTasks = /\\b(google tasks?|my tasks|task list|tasks due|to-do list|todo list)\\b/i.test(message) &&
-    /\\b(show|list|find|check|what|upcoming|next|today|tomorrow|due|overdue|open)\\b/i.test(message);
-  const wantsGitHub = /\\b(github|repositories|repo|pull requests?|issues?)\\b/i.test(message) &&
-    /\\b(show|list|find|search|check|my|recent|open|closed|latest|what|status|repo|repository|pull request|issue)\\b/i.test(message);
+  const wantsDrive = /\b(google\s+drive|drive files?|in drive|google docs?|google sheets?|spreadsheets?|document in drive|spreadsheet in drive)\b/i.test(message) &&
+    /\b(find|search|show|list|open|read|summari[sz]e|latest|recent|locate|where|invoice|report|resume|document|file|contents?|values?)\b/i.test(message);
+  const wantsCalendar = /\b(calendar|upcoming events?|meetings?|events?)\b/i.test(message) &&
+    /\b(show|list|find|check|what|upcoming|next|schedule|today|tomorrow|week|month)\b/i.test(message);
+  const wantsGoogleTasks = /\b(google tasks?|my tasks|task list|tasks due|to-do list|todo list)\b/i.test(message) &&
+    /\b(show|list|find|check|what|upcoming|next|today|tomorrow|due|overdue|open)\b/i.test(message);
+  const wantsGitHub = /\b(github|repositories|repo|pull requests?|issues?)\b/i.test(message) &&
+    /\b(show|list|find|search|check|my|recent|open|closed|latest|what|status|repo|repository|pull request|issue)\b/i.test(message);
   if (!wantsGmail && !wantsDrive && !wantsCalendar && !wantsGoogleTasks && !wantsGitHub) return "";
 
   const tasks: Promise<string>[] = [];
@@ -3163,9 +3163,9 @@ async function buildConnectedAppToolContext(message: string): Promise<string> {
     try {
       const token = await getGoogleAccessToken(GMAIL_READ_SCOPE);
       let query = "in:inbox newer_than:30d";
-      if (/\\bunread\\b/i.test(message)) query = "in:inbox is:unread newer_than:30d";
+      if (/\bunread\b/i.test(message)) query = "in:inbox is:unread newer_than:30d";
       else {
-        const keyword = message.match(/\\b(invoice|receipt|resume|offer|interview)\\b/i)?.[0];
+        const keyword = message.match(/\b(invoice|receipt|resume|offer|interview)\b/i)?.[0];
         if (keyword) query = "in:inbox " + keyword + " newer_than:90d";
       }
       const url = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
@@ -3191,7 +3191,7 @@ async function buildConnectedAppToolContext(message: string): Promise<string> {
   if (wantsDrive) tasks.push((async () => {
     try {
       const stopWords = new Set(["find","search","show","list","open","read","summarize","summarise","latest","recent","locate","where","is","my","the","a","an","in","on","for","from","google","drive","docs","doc","sheets","sheet","spreadsheet","spreadsheets","files","file","document","documents","please","can","you","me","contents","content","values"]);
-      const term = message.toLowerCase().replace(/[^a-z0-9._ -]/g, " ").split(/\\s+/).filter(word => word.length > 2 && !stopWords.has(word)).slice(-3).join(" ").slice(0, 100);
+      const term = message.toLowerCase().replace(/[^a-z0-9._ -]/g, " ").split(/\s+/).filter(word => word.length > 2 && !stopWords.has(word)).slice(-3).join(" ").slice(0, 100);
       if (!term) return "Google Drive needs a filename or topic to search.";
       const token = await getGoogleAccessToken(DRIVE_READ_SCOPE);
       const escaped = term.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
@@ -3203,7 +3203,7 @@ async function buildConnectedAppToolContext(message: string): Promise<string> {
       if (!response.ok) return "Google Drive search failed (HTTP " + response.status + "); check Drive read permission.";
       const data = await response.json() as { files?: Array<{ id: string; name: string; mimeType?: string; modifiedTime?: string; webViewLink?: string }> };
       const files = data.files || [];
-      const wantsContent = /\\b(read|open|summari[sz]e|contents?|inside|what is in)\\b/i.test(message);
+      const wantsContent = /\b(read|open|summari[sz]e|contents?|inside|what is in)\b/i.test(message);
       if (!wantsContent) return "GOOGLE DRIVE RESULTS: " + JSON.stringify({ query: term, files: files.map(({ id, ...file }) => file) });
 
       const contentResults = await Promise.all(files.slice(0, 3).map(async file => {
