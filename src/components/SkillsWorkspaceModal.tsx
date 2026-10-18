@@ -38,6 +38,7 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
   const [isCreating, setIsCreating] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const [confirmingDeleteSkillId, setConfirmingDeleteSkillId] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -80,9 +81,8 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
     }
   };
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm("Delete this skill?")) return;
+  const handleDelete = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     try {
       const res = await fetch(`/api/skills/${id}`, { method: "DELETE" });
       if (res.ok) {
@@ -90,6 +90,7 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
         if (selectedSkill?.id === id) {
           setSelectedSkill(null);
         }
+        setConfirmingDeleteSkillId(null);
       }
     } catch (err) {
       console.error("Delete error:", err);
@@ -474,12 +475,34 @@ export const SkillsWorkspaceModal: React.FC<SkillsWorkspaceModalProps> = ({
                     {selectedSkill.enabled ? "Disable" : "Enable"}
                   </Button>
                   {selectedSkill.author === "User" && (
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      icon={<AppIcon name="trash" size={13} />}
-                      onClick={(e) => handleDelete(selectedSkill.id, e)}
-                    />
+                    confirmingDeleteSkillId === selectedSkill.id ? (
+                      <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[var(--claude-surface)] border border-rose-500/40">
+                        <span className="text-xs text-rose-500 font-semibold">Delete?</span>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={(e) => handleDelete(selectedSkill.id, e)}
+                        >
+                          Yes
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="quiet"
+                          onClick={() => setConfirmingDeleteSkillId(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        icon={<AppIcon name="trash" size={13} />}
+                        onClick={() => setConfirmingDeleteSkillId(selectedSkill.id)}
+                        aria-label="Delete skill"
+                        title="Delete skill"
+                      />
+                    )
                   )}
                 </div>
               </div>

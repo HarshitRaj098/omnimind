@@ -286,6 +286,29 @@ export default function App() {
     }
   };
 
+  const handleDeleteMessage = async (messageId: string): Promise<boolean> => {
+    if (!activeId || !activeConversation) return false;
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(activeId)}/messages/${encodeURIComponent(messageId)}`, {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.conversation) {
+          setActiveConversation(data.conversation);
+          return true;
+        }
+      }
+    } catch (e) {
+      console.warn("Server message delete failed, updating local state:", e);
+    }
+    setActiveConversation(prev => prev ? {
+      ...prev,
+      messages: prev.messages.filter(m => m.id !== messageId)
+    } : null);
+    return true;
+  };
+
   const handleRenameConversation = async (id: string, newTitle: string): Promise<string | null> => {
     try {
       const res = await fetch(`/api/conversations/${encodeURIComponent(id)}`, {
@@ -734,6 +757,8 @@ export default function App() {
           onOpenTasks={() => setIsScheduledTasksModalOpen(true)}
           onOpenMemory={() => setIsMemoryModalOpen(true)}
           onResolveAction={handleResolveChatAction}
+          onDeleteConversation={handleDeleteConversation}
+          onDeleteMessage={handleDeleteMessage}
         />
 
         <div className="w-full shrink-0">

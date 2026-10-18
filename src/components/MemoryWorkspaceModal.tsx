@@ -28,6 +28,7 @@ export const MemoryWorkspaceModal: React.FC<MemoryWorkspaceModalProps> = ({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [confirmingClearAll, setConfirmingClearAll] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -240,12 +241,12 @@ export const MemoryWorkspaceModal: React.FC<MemoryWorkspaceModalProps> = ({
   };
 
   const handleClearAll = async () => {
-    if (!confirm("Clear all stored memories? This cannot be undone.")) return;
     try {
       const res = await fetch("/api/memories/clear", { method: "POST" });
       if (res.ok) {
         setMemories([]);
         showFeedback("All memories cleared");
+        setConfirmingClearAll(false);
       }
     } catch (err) {
       console.error("Failed to clear memories:", err);
@@ -277,9 +278,21 @@ export const MemoryWorkspaceModal: React.FC<MemoryWorkspaceModalProps> = ({
       footer={
         <div className="flex items-center justify-between w-full">
           {memories.length > 0 && (
-            <Button size="sm" variant="danger" onClick={handleClearAll}>
-              Clear All Memories
-            </Button>
+            confirmingClearAll ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-rose-500 font-semibold">Clear all?</span>
+                <Button size="sm" variant="danger" onClick={handleClearAll}>
+                  Yes, clear
+                </Button>
+                <Button size="sm" variant="quiet" onClick={() => setConfirmingClearAll(false)}>
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Button size="sm" variant="danger" onClick={() => setConfirmingClearAll(true)}>
+                Clear All Memories
+              </Button>
+            )
           )}
           <Button variant="secondary" onClick={onClose} className="ml-auto">
             Close

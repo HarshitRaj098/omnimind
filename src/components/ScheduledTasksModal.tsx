@@ -51,6 +51,7 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
   const [savingEdit, setSavingEdit] = useState(false);
   const [bulkAction, setBulkAction] = useState<"pause" | "resume" | null>(null);
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
+  const [confirmDeleteTaskId, setConfirmDeleteTaskId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
@@ -143,10 +144,6 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
   }, [isOpen, loadTasks]);
 
   const bulkUpdateTasks = async (action: "pause" | "resume") => {
-    const message = action === "pause"
-      ? "Pause every scheduled task that is not currently running?"
-      : "Resume eligible paused tasks? One-time tasks that already ran will stay paused.";
-    if (!window.confirm(message)) return;
     setBulkAction(action);
     setError(null);
     setBulkMessage(null);
@@ -216,7 +213,6 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
   };
 
   const retryFailedTask = async (task: ScheduledTask) => {
-    if (!window.confirm(`Retry the last failed run for "${task.title}" now?`)) return;
     setError(null);
     setRunningTaskIds(prev => new Set(prev).add(task.id));
     try {
@@ -279,6 +275,7 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
       if (!response.ok) throw new Error(data.error || "Could not delete task.");
       setTasks(prev => prev.filter(item => item.id !== task.id));
       if (editingTask?.id === task.id) setEditingTask(null);
+      setConfirmDeleteTaskId(null);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not delete task."); }
   };
 
@@ -398,7 +395,37 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
                   </div>
                 </div>)}</div>
               </div> : <p className="text-xs text-[var(--claude-text-muted)]">No execution history yet · {task.runCount} runs</p>}
-              <div className="flex flex-wrap justify-end gap-2">{task.runs?.[0]?.status === "failed" && <Button size="sm" variant="secondary" onClick={() => void retryFailedTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{runningTaskIds.has(task.id) || task.running ? "Retrying…" : "Retry failure"}</Button>}<Button size="sm" variant="secondary" onClick={() => void runTaskNow(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{runningTaskIds.has(task.id) || task.running ? "Running…" : "Run now"}</Button><Button size="sm" variant="quiet" onClick={() => beginEditTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{editingTask?.id === task.id ? "Editing…" : "Edit"}</Button><Button size="sm" variant="quiet" onClick={() => void toggleTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>{task.enabled ? "Pause" : "Resume"}</Button><Button size="sm" variant="quiet" onClick={() => void deleteTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>Delete</Button></div>
+              <div className="flex flex-wrap justify-end gap-2">
+                {task.runs?.[0]?.status === "failed" && (
+                  <Button size="sm" variant="secondary" onClick={() => void retryFailedTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>
+                    {runningTaskIds.has(task.id) || task.running ? "Retrying…" : "Retry failure"}
+                  </Button>
+                )}
+                <Button size="sm" variant="secondary" onClick={() => void runTaskNow(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>
+                  {runningTaskIds.has(task.id) || task.running ? "Running…" : "Run now"}
+                </Button>
+                <Button size="sm" variant="quiet" onClick={() => beginEditTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>
+                  {editingTask?.id === task.id ? "Editing…" : "Edit"}
+                </Button>
+                <Button size="sm" variant="quiet" onClick={() => void toggleTask(task)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>
+                  {task.enabled ? "Pause" : "Resume"}
+                </Button>
+                {confirmDeleteTaskId === task.id ? (
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[var(--claude-surface)] border border-rose-500/40">
+                    <span className="text-xs text-rose-500 font-semibold">Delete?</span>
+                    <Button size="sm" variant="danger" onClick={() => void deleteTask(task)}>
+                      Yes
+                    </Button>
+                    <Button size="sm" variant="quiet" onClick={() => setConfirmDeleteTaskId(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                ) : (
+                  <Button size="sm" variant="quiet" onClick={() => setConfirmDeleteTaskId(task.id)} disabled={runningTaskIds.has(task.id) || Boolean(task.running)}>
+                    Delete
+                  </Button>
+                )}
+              </div>
             </article>
           ))}
         </div>

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Modal, Button, StatusText } from "./ui";
 import { AppIcon, IconName } from "./AppIcon";
+import { googleSignIn, googleSignOut, initAuth, getCachedToken, getFirebaseAuth, WORKSPACE_SCOPES } from "../lib/googleAuth";
+import { signInWithRedirect, GoogleAuthProvider } from "firebase/auth";
 
 interface ConnectedApp {
   id: string;
@@ -76,8 +78,16 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       fetchApps();
+      void initAuth((user) => {
+        if (user.email) setGoogleAccountEmail(user.email);
+      });
     }
   }, [isOpen]);
+
+  const getAuthHeaders = (): Record<string, string> => {
+    const token = getCachedToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
 
   const fetchApps = async () => {
     try {
@@ -97,7 +107,24 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
     }
   };
 
-  const connectGoogle = () => window.location.assign("/api/apps/google/connect");
+  const connectGoogle = async () => {
+    setLoading(true);
+    setWorkspaceError(null);
+    setTestResult(null);
+    try {
+      const auth = await getFirebaseAuth();
+      const provider = new GoogleAuthProvider();
+      for (const scope of WORKSPACE_SCOPES) {
+        provider.addScope(scope);
+      }
+      provider.setCustomParameters({ prompt: "consent" });
+      await signInWithRedirect(auth, provider);
+    } catch (error: any) {
+      setTestResult(error?.message || "Failed to initiate Google sign in.");
+      setLoading(false);
+    }
+  };
+
   const connectGitHub = () => window.location.assign("/api/apps/github/connect");
 
   const loadGitHubRepos = async () => {
@@ -136,14 +163,6 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       });
       const prepared = await prepareResponse.json().catch(() => ({}));
       if (!prepareResponse.ok) throw new Error(prepared.error || "Could not prepare GitHub issue.");
-      const preview = prepared.preview as { repository: string; title: string; body: string };
-      const confirmed = window.confirm(
-        "Create a real GitHub issue?\n\nRepository: " + preview.repository + "\nTitle: " + preview.title + "\n\nDescription:\n" + (preview.body || "(No description)") + "\n\nThis confirmation expires in five minutes."
-      );
-      if (!confirmed) {
-        setTestResult("Issue cancelled. Nothing was posted to GitHub.");
-        return;
-      }
       const response = await fetch("/api/apps/github/issues/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -179,18 +198,6 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       });
       const prepared = await prepareResponse.json().catch(() => ({}));
       if (!prepareResponse.ok) throw new Error(prepared.error || "Could not prepare GitHub file change.");
-      const preview = prepared.preview as { repository: string; path: string; baseBranch: string; commitMessage: string; contentPreview: string; contentLength: number; updatingExistingFile: boolean };
-      const confirmed = window.confirm(
-        "Create a GitHub branch and pull request?\n\nRepository: " + preview.repository +
-        "\nFile: " + preview.path + (preview.updatingExistingFile ? " (update existing file)" : " (new file)") +
-        "\nBase branch: " + preview.baseBranch + "\nPR title: " + preview.commitMessage +
-        "\nContent length: " + preview.contentLength + " characters\n\nPreview (first 1200 characters):\n" +
-        preview.contentPreview + "\n\nThis creates a branch and opens a PR; it does not merge into the base branch. Confirmation expires in five minutes."
-      );
-      if (!confirmed) {
-        setTestResult("File change cancelled. No branch or pull request was created.");
-        return;
-      }
       const response = await fetch("/api/apps/github/changes/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -232,7 +239,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
     setWorkspaceError(null);
     setDriveFiles([]);
     try {
-      const response = await fetch("/api/apps/gmail/messages?limit=10", { cache: "no-store" });
+      const response = await fetch("/api/apps/gmail/messages?limit=10", { headers: getAuthHeaders(), cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not read Gmail inbox.");
       setGmailMessages(Array.isArray(data.messages) ? data.messages : []);
@@ -249,7 +256,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
     setWorkspaceError(null);
     setGmailMessages([]);
     try {
-      const response = await fetch(`/api/apps/drive/files?q=${encodeURIComponent(workspaceQuery.trim())}`, { cache: "no-store" });
+      const response = await fetch(`/api/apps/drive/files?q=${encodeURIComponent(workspaceQuery.trim())}`, { headers: getAuthHeaders(), cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not search Google Drive.");
       setDriveFiles(Array.isArray(data.files) ? data.files : []);
@@ -267,7 +274,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
     setWorkspaceError(null);
     setYoutubeVideos([]);
     try {
-      const response = await fetch(`/api/apps/youtube/search?q=${encodeURIComponent(youtubeQuery.trim())}`, { cache: "no-store" });
+      const response = await fetch(`/api/apps/youtube/search?q=${encodeURIComponent(youtubeQuery.trim())}`, { headers: getAuthHeaders(), cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not search YouTube.");
       setYoutubeVideos(Array.isArray(data.videos) ? data.videos : []);
@@ -285,7 +292,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
     setGmailMessages([]);
     setDriveFiles([]);
     try {
-      const response = await fetch("/api/apps/calendar/events?days=7", { cache: "no-store" });
+      const response = await fetch("/api/apps/calendar/events?days=7", { headers: getAuthHeaders(), cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not load Google Calendar events.");
       setCalendarEvents(Array.isArray(data.events) ? data.events : []);
@@ -307,7 +314,7 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
     setCalendarEvents([]);
     try {
       const query = listId ? "?listId=" + encodeURIComponent(listId) : "";
-      const response = await fetch("/api/apps/tasks" + query, { cache: "no-store" });
+      const response = await fetch("/api/apps/tasks" + query, { headers: getAuthHeaders(), cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not load Google Tasks.");
       const lists = Array.isArray(data.taskLists) ? data.taskLists : [];
@@ -331,12 +338,11 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       setWorkspaceError("Choose a task list and enter a task title.");
       return;
     }
-    if (!window.confirm(`Create this Google Task in "${googleTaskListTitle || "selected list"}"?\n\n${title}${googleTaskNotes.trim() ? "\n\n" + googleTaskNotes.trim() : ""}`)) return;
     setTaskActionLoading("create");
     setWorkspaceError(null);
     try {
       const response = await fetch("/api/apps/tasks/create", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ listId: selectedGoogleTaskListId, title, notes: googleTaskNotes })
       });
       const data = await response.json().catch(() => ({}));
@@ -354,12 +360,11 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
 
   const completeGoogleTask = async (task: { id: string; title: string }) => {
     if (!selectedGoogleTaskListId) return;
-    if (!window.confirm(`Mark this Google Task as complete?\n\n${task.title}\n\nThis updates your real Google Tasks list.`)) return;
     setTaskActionLoading(task.id);
     setWorkspaceError(null);
     try {
       const response = await fetch("/api/apps/tasks/complete", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ listId: selectedGoogleTaskListId, taskId: task.id })
       });
       const data = await response.json().catch(() => ({}));
@@ -378,13 +383,12 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       setWorkspaceError("Fill in the recipient, subject, and message before sending.");
       return;
     }
-    if (!window.confirm(`Send this email to ${emailTo.trim()}?\n\nSubject: ${emailSubject.trim()}\n\nThis sends a real email from your connected Gmail account.`)) return;
     setWorkspaceLoading(true);
     setWorkspaceError(null);
     try {
       const response = await fetch("/api/apps/gmail/send", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ to: emailTo.trim(), subject: emailSubject.trim(), body: emailBody })
       });
       const data = await response.json().catch(() => ({}));
@@ -403,15 +407,12 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       setWorkspaceError("Enter an event title and valid times; the end must be after the start.");
       return;
     }
-    const startLabel = new Date(eventStart).toLocaleString();
-    const endLabel = new Date(eventEnd).toLocaleString();
-    if (!window.confirm(`Create this Google Calendar event?\n\n${eventTitle.trim()}\n${startLabel} – ${endLabel}\n${eventLocation.trim()}\n\nThis creates a real event on your primary calendar.`)) return;
     setWorkspaceLoading(true);
     setWorkspaceError(null);
     try {
       const response = await fetch("/api/apps/calendar/events", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({
           summary: eventTitle.trim(),
           start: new Date(eventStart).toISOString(),
@@ -424,7 +425,6 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       setWorkspaceError("Calendar event created successfully.");
       setEventTitle(""); setEventLocation("");
       await loadCalendar();
-      if (data.htmlLink) window.open(data.htmlLink, "_blank", "noopener,noreferrer");
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : "Could not create Calendar event.");
     } finally {
@@ -452,14 +452,12 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
         return;
       }
     }
-    const operation = isDoc ? "append text to" : `write values to ${sheetRange} in`;
-    if (!window.confirm(`Confirm: ${operation} “${selectedDriveFile.name}”?\n\nThis modifies the live Google file.`)) return;
     setWorkspaceLoading(true);
     setWorkspaceError(null);
     try {
       const response = await fetch(isDoc ? "/api/apps/docs/append" : "/api/apps/sheets/update", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify(isDoc
           ? { documentId: selectedDriveFile.id, text: documentText }
           : { spreadsheetId: selectedDriveFile.id, range: sheetRange, values })
@@ -481,11 +479,12 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
     setLoading(true);
     setTestResult(null);
     try {
+      await googleSignOut();
       const response = await fetch("/api/apps/google/disconnect", { method: "POST" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not disconnect Google.");
       setGoogleAccountEmail(null);
-      setApps(prev => prev.map(app => app.category === "whatsapp"
+      setApps(prev => prev.map(app => app.category === "whatsapp" || app.category === "github"
         ? app
         : { ...app, connected: false, accountEmail: undefined, lastConnected: undefined }));
       setTestResult("Google account disconnected from OmniMind.");

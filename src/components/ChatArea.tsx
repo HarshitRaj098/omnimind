@@ -23,6 +23,8 @@ interface ChatAreaProps {
   onOpenTasks: () => void;
   onOpenMemory: () => void;
   onResolveAction: (actionId: string, confirm: boolean) => void;
+  onDeleteConversation?: (id: string) => Promise<boolean> | void;
+  onDeleteMessage?: (messageId: string) => Promise<boolean> | void;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
@@ -38,11 +40,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   onOpenApps,
   onOpenTasks,
   onResolveAction,
+  onDeleteConversation,
+  onDeleteMessage,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [confirmDeleteHeader, setConfirmDeleteHeader] = useState(false);
+  const [isDeletingHeader, setIsDeletingHeader] = useState(false);
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setConfirmDeleteHeader(false);
+  }, [conversation?.id]);
 
   const handleScroll = () => {
     const container = scrollContainerRef.current;
@@ -189,6 +200,50 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             Export
           </Button>
         )}
+        {conversation?.id && onDeleteConversation && (
+          confirmDeleteHeader ? (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[var(--claude-surface)] border border-rose-500/40 shadow-xs">
+              <span className="text-xs text-rose-500 font-semibold">Delete chat?</span>
+              <button
+                type="button"
+                disabled={isDeletingHeader}
+                onClick={async () => {
+                  setIsDeletingHeader(true);
+                  try {
+                    await onDeleteConversation(conversation.id);
+                  } finally {
+                    setIsDeletingHeader(false);
+                    setConfirmDeleteHeader(false);
+                  }
+                }}
+                className="px-2 py-0.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded transition-colors"
+                aria-label="Confirm delete chat"
+              >
+                {isDeletingHeader ? "..." : "Delete"}
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingHeader}
+                onClick={() => setConfirmDeleteHeader(false)}
+                className="px-1.5 py-0.5 text-xs text-[var(--claude-text-muted)] hover:text-[var(--claude-text)] bg-[var(--claude-border)] rounded transition-colors"
+                aria-label="Cancel"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <Button
+              size="sm"
+              variant="quiet"
+              icon={<AppIcon name="trash" size={14} className="text-[var(--claude-text-muted)] hover:text-rose-500" />}
+              onClick={() => setConfirmDeleteHeader(true)}
+              aria-label="Delete this conversation"
+              title="Delete this conversation"
+            >
+              Delete
+            </Button>
+          )
+        )}
       </header>
 
       <div ref={scrollContainerRef} onScroll={handleScroll} className="relative flex-1 min-h-0 overflow-y-auto custom-scrollbar">
@@ -315,6 +370,25 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                             title="Regenerate response"
                           >
                             Retry
+                          </button>
+                        )}
+                        {onDeleteMessage && (
+                          <button
+                            type="button"
+                            disabled={deletingMessageId === msg.id}
+                            onClick={async () => {
+                              setDeletingMessageId(msg.id);
+                              try {
+                                await onDeleteMessage(msg.id);
+                              } finally {
+                                setDeletingMessageId(null);
+                              }
+                            }}
+                            className="rounded-md px-1.5 py-1 text-[var(--claude-text-muted)] hover:bg-[var(--claude-border-subtle)] hover:text-rose-500 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[var(--claude-accent)]"
+                            title="Delete message"
+                            aria-label="Delete message"
+                          >
+                            <AppIcon name="trash" size={13} />
                           </button>
                         )}
                       </div>

@@ -42,6 +42,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     const query = search.trim();
@@ -171,14 +173,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
+  const handleRequestDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm("Delete this conversation?")) return;
-    const deleted = await onDelete(id);
-    if (deleted) {
-      setSearchResults((previous) => previous.filter((conversation) => conversation.id !== id));
-      setHighlightedIndex(-1);
+    setConfirmingDeleteId(id);
+  };
+
+  const handleConfirmDelete = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDeletingId(id);
+    try {
+      const deleted = await onDelete(id);
+      if (deleted) {
+        setSearchResults((previous) => previous.filter((conversation) => conversation.id !== id));
+        setHighlightedIndex(-1);
+      }
+    } finally {
+      setIsDeletingId(null);
+      setConfirmingDeleteId(null);
     }
+  };
+
+  const handleCancelDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmingDeleteId(null);
   };
 
   return (
@@ -329,32 +346,64 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
 
                   {!isEditing && (
-                    <div className="flex items-center gap-1 shrink-0 ml-2 md:invisible md:group-hover:visible md:group-focus-within:visible">
-                      <button
-                        onClick={(e) => handleTogglePin(c.id, !Boolean(c.pinned), e)}
-                        className="min-h-7 min-w-7 p-1 text-[var(--claude-text-muted)] hover:text-[var(--claude-text)] rounded-lg hover:bg-[var(--claude-border)] text-[10px]"
-                        title={c.pinned ? "Unpin conversation" : "Pin conversation"}
-                        aria-label={c.pinned ? "Unpin conversation" : "Pin conversation"}
+                    confirmingDeleteId === c.id ? (
+                      <div
+                        className="flex items-center gap-1.5 shrink-0 ml-1 py-0.5 px-1.5 rounded-lg bg-[var(--claude-surface)] border border-rose-500/40 shadow-xs z-10"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        {c.pinned ? "Unpin" : "Pin"}
-                      </button>
-                      <button
-                        onClick={(e) => startRename(c, e)}
-                        className="min-h-7 min-w-7 p-1 text-[var(--claude-text-muted)] hover:text-[var(--claude-text)] rounded-lg hover:bg-[var(--claude-border)]"
-                        title="Rename"
-                        aria-label={`Rename ${c.title}`}
-                      >
-                        <AppIcon name="edit" size={12} />
-                      </button>
-                      <button
-                        onClick={(e) => handleDelete(c.id, e)}
-                        className="min-h-7 min-w-7 p-1 text-[var(--claude-text-muted)] hover:text-rose-500 rounded-lg hover:bg-[var(--claude-border)]"
-                        title="Delete"
-                        aria-label={`Delete ${c.title}`}
-                      >
-                        <AppIcon name="trash" size={12} />
-                      </button>
-                    </div>
+                        <span className="text-[10px] text-rose-500 font-semibold tracking-wide">Delete?</span>
+                        <button
+                          type="button"
+                          disabled={isDeletingId === c.id}
+                          onClick={(e) => handleConfirmDelete(c.id, e)}
+                          className="px-1.5 py-0.5 text-[10px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded transition-colors"
+                          title="Confirm Delete"
+                          aria-label="Confirm delete conversation"
+                        >
+                          {isDeletingId === c.id ? "..." : "Delete"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isDeletingId === c.id}
+                          onClick={handleCancelDelete}
+                          className="px-1.5 py-0.5 text-[10px] text-[var(--claude-text-muted)] hover:text-[var(--claude-text)] bg-[var(--claude-border)] hover:bg-[var(--claude-border)]/80 rounded transition-colors"
+                          title="Cancel"
+                          aria-label="Cancel delete"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 shrink-0 ml-2 md:invisible md:group-hover:visible md:group-focus-within:visible">
+                        <button
+                          type="button"
+                          onClick={(e) => handleTogglePin(c.id, !Boolean(c.pinned), e)}
+                          className="min-h-7 min-w-7 p-1 text-[var(--claude-text-muted)] hover:text-[var(--claude-text)] rounded-lg hover:bg-[var(--claude-border)] text-[10px]"
+                          title={c.pinned ? "Unpin conversation" : "Pin conversation"}
+                          aria-label={c.pinned ? "Unpin conversation" : "Pin conversation"}
+                        >
+                          {c.pinned ? "Unpin" : "Pin"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => startRename(c, e)}
+                          className="min-h-7 min-w-7 p-1 text-[var(--claude-text-muted)] hover:text-[var(--claude-text)] rounded-lg hover:bg-[var(--claude-border)]"
+                          title="Rename"
+                          aria-label={`Rename ${c.title}`}
+                        >
+                          <AppIcon name="edit" size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleRequestDelete(c.id, e)}
+                          className="min-h-7 min-w-7 p-1 text-[var(--claude-text-muted)] hover:text-rose-500 rounded-lg hover:bg-[var(--claude-border)]"
+                          title="Delete"
+                          aria-label={`Delete ${c.title}`}
+                        >
+                          <AppIcon name="trash" size={12} />
+                        </button>
+                      </div>
+                    )
                   )}
                 </div>
               );

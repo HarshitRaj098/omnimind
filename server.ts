@@ -424,12 +424,17 @@ class GoogleAppError extends Error {
   }
 }
 
-async function getGoogleAccessToken(requiredScope: string): Promise<string> {
+async function getGoogleAccessToken(requiredScope: string, req?: express.Request): Promise<string> {
+  const authHeader = req?.headers?.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const bearer = authHeader.slice(7).trim();
+    if (bearer) return bearer;
+  }
   const tokens = loadGoogleOAuthTokens();
   if (!tokens) throw new GoogleAppError(401, "Connect a Google account first.");
   const scopes = new Set((tokens.scope || "").split(/\s+/).filter(Boolean));
   if (!scopes.has(requiredScope)) {
-    throw new GoogleAppError(403, "This Google account has not granted the required read-only permission. Disconnect and reconnect Google to review permissions.");
+    throw new GoogleAppError(403, "This Google account has not granted the required permission. Reconnect Google to review permissions.");
   }
 
   if (tokens.expires_at > Date.now() + 60_000) return tokens.access_token;
@@ -958,6 +963,17 @@ app.delete("/api/conversations/:id", (req, res) => {
   }
 
   return res.json({ success: true, deletedId: id });
+});
+
+app.delete("/api/conversations/:id/messages/:messageId", (req, res) => {
+  const { id, messageId } = req.params;
+  const convs = loadConversations();
+  const conv = convs.find(c => c.id === id);
+  if (!conv) return res.status(404).json({ error: "Conversation not found" });
+  conv.messages = conv.messages.filter(m => m.id !== messageId);
+  conv.updatedAt = Date.now();
+  saveConversations(convs);
+  return res.json({ success: true, conversation: conv });
 });
 
 // Import/Export
@@ -1848,8 +1864,58 @@ function googleOAuthConfig() {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const appUrl = process.env.APP_URL?.replace(/\/$/, "");
   const redirectUri = process.env.GOOGLE_REDIRECT_URI || (appUrl ? `${appUrl}/api/apps/google/callback` : "");
-  return { clientId, clientSecret, redirectUri, configured: Boolean(clientId && clientSecret && redirectUri) };
+  const hasFirebaseConfig = fs.existsSync(path.join(process.cwd(), "firebase-applet-config.json"));
+  return {
+    clientId,
+    clientSecret,
+    redirectUri,
+    hasFirebaseConfig,
+    configured: Boolean((clientId && clientSecret && redirectUri) || hasFirebaseConfig)
+  };
 }
+
+app.get("/api/apps/google/config", (_req, res) => {
+  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+  if (fs.existsSync(configPath)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      return res.json(config);
+    } catch (e) {
+      console.error("Error reading firebase-applet-config.json:", e);
+    }
+  }
+  return res.status(404).json({ error: "Firebase applet config not found" });
+});
+
+app.post("/api/apps/google/session", (req, res) => {
+  const { email, accessToken, scope } = req.body;
+  if (!accessToken) return res.status(400).json({ error: "accessToken is required" });
+  saveGoogleOAuthTokens({
+    access_token: accessToken,
+    refresh_token: "",
+    scope: scope || GOOGLE_OAUTH_SCOPES.join(" "),
+    expires_at: Date.now() + 3600 * 1000,
+    connectedAt: Date.now(),
+    email: email || "user@google.com"
+  });
+
+  const apps = loadApps();
+  const googleAppIds = ["gmail", "drive", "docs", "sheets", "calendar", "youtube"];
+  const updatedApps = apps.map(app => {
+    if (googleAppIds.includes(app.id)) {
+      return {
+        ...app,
+        connected: true,
+        lastConnected: Date.now(),
+        accountEmail: email || app.accountEmail
+      };
+    }
+    return app;
+  });
+  saveApps(updatedApps);
+
+  return res.json({ success: true, email: email || null });
+});
 
 app.get("/api/apps/status", (_req, res) => {
   const config = googleOAuthConfig();
