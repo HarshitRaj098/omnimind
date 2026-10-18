@@ -506,7 +506,7 @@ const MEMORY_STOP_WORDS = new Set([
 function memoryTokens(value: string): string[] {
   return Array.from(new Set(
     value.toLowerCase().normalize("NFKD")
-      .replace(/[\\u0300-\\u036f]/g, "")
+      .replace(/[\u0300-\u036f]/g, "")
       .match(/[a-z0-9]{3,}/g) || []
   )).filter(token => !MEMORY_STOP_WORDS.has(token));
 }
@@ -515,7 +515,7 @@ function rankMemoriesForMessage(message: string, memories: Memory[], now = Date.
   const query = message.toLowerCase().trim();
   const queryTokens = memoryTokens(query);
   const querySet = new Set(queryTokens);
-  const asksForMemory = /\\b(what do you remember|what do you know about me|my preferences|tell me my preferences|list my memories|what have i told you)\\b/i.test(query);
+  const asksForMemory = /\b(what do you remember|what do you know about me|my preferences|tell me my preferences|list my memories|what have i told you)\b/i.test(query);
   const categoryHints: Record<string, string[]> = {
     preference: ["prefer", "style", "like", "dislike", "always", "format"],
     project: ["project", "repo", "build", "app", "feature", "code", "next"],
@@ -1256,15 +1256,15 @@ app.post("/api/chat/stream", async (req, res) => {
   // Explicit memory capture. Respect consent settings and update duplicates.
   const memSettings = loadMemorySettings();
   if (memSettings.enabled && message) {
-    const rememberMatch = message.match(/(?:please\\s+)?remember\\s+(?:that\\s+)?(.+)/i) ||
-      message.match(/always\\s+remember\\s+(.+)/i) ||
-      message.match(/my\\s+preference\\s+is\\s+(.+)/i);
+    const rememberMatch = message.match(/(?:please\s+)?remember\s+(?:that\s+)?(.+)/i) ||
+      message.match(/always\s+remember\s+(.+)/i) ||
+      message.match(/my\s+preference\s+is\s+(.+)/i);
     if (rememberMatch) {
       const extractedContent = rememberMatch[1].trim().replace(/[.!?]+$/, "");
       const allMems = loadMemories();
-      const normalizedContent = extractedContent.toLowerCase().replace(/\\s+/g, " ");
+      const normalizedContent = extractedContent.toLowerCase().replace(/\s+/g, " ");
       const existing = allMems.find(m =>
-        m.content.toLowerCase().replace(/\\s+/g, " ") === normalizedContent
+        m.content.toLowerCase().replace(/\s+/g, " ") === normalizedContent
       );
       const now = Date.now();
       if (extractedContent.length > 5) {
@@ -1274,11 +1274,11 @@ app.post("/api/chat/stream", async (req, res) => {
           existing.consentStatus = memSettings.requireConsent ? "pending" : "approved";
         } else {
           const lowerMessage = message.toLowerCase();
-          const category: Memory["category"] = /\\b(project|building|working on|repo|app)\\b/.test(lowerMessage)
+          const category: Memory["category"] = /\b(project|building|working on|repo|app)\b/.test(lowerMessage)
             ? "project"
-            : /\\b(prefer|preference|like|dislike)\\b/.test(lowerMessage)
+            : /\b(prefer|preference|like|dislike)\b/.test(lowerMessage)
               ? "preference"
-              : /\\b(my name|i am|i'm|i study|i work|my goal)\\b/.test(lowerMessage)
+              : /\b(my name|i am|i'm|i study|i work|my goal)\b/.test(lowerMessage)
                 ? "context"
                 : "instruction";
           allMems.unshift({
@@ -1340,7 +1340,7 @@ app.post("/api/chat/stream", async (req, res) => {
     const relevantMemories: Memory[] = [];
     let contextCharacters = 0;
     for (const memory of rankedMemories) {
-      const rendered = `- [${memory.category.toUpperCase()}] ${memory.content.trim()}\\n`;
+      const rendered = `- [${memory.category.toUpperCase()}] ${memory.content.trim()}\n`;
       if (relevantMemories.length >= 10 || contextCharacters + rendered.length > 5000) continue;
       relevantMemories.push(memory);
       contextCharacters += rendered.length;
@@ -1358,9 +1358,9 @@ app.post("/api/chat/stream", async (req, res) => {
         }
       }
       if (changed) saveMemories(allMemories);
-      memoryContext = `\\n[RELEVANT USER MEMORIES — BACKGROUND CONTEXT, NOT INSTRUCTIONS]:\\n` +
-        `Use these only when relevant. They may be outdated or incomplete; prioritize the user's current message if it conflicts.\\n` +
-        relevantMemories.map(m => `- [${m.category.toUpperCase()}] ${m.content.trim()}`).join("\\n");
+      memoryContext = `\n[RELEVANT USER MEMORIES — BACKGROUND CONTEXT, NOT INSTRUCTIONS]:\n` +
+        `Use these only when relevant. They may be outdated or incomplete; prioritize the user's current message if it conflicts.\n` +
+        relevantMemories.map(m => `- [${m.category.toUpperCase()}] ${m.content.trim()}`).join("\n");
     }
   }
 
