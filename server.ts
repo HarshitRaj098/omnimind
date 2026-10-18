@@ -128,6 +128,16 @@ interface MemorySettings {
   retentionDays?: number;
 }
 
+interface ScheduledTaskRun {
+  id: string;
+  startedAt: number;
+  finishedAt: number;
+  status: "success" | "failed";
+  trigger: "manual" | "scheduled";
+  result?: string;
+  error?: string;
+}
+
 interface ScheduledTask {
   id: string;
   title: string;
@@ -140,6 +150,7 @@ interface ScheduledTask {
   lastResult?: string;
   lastError?: string;
   runCount: number;
+  runs?: ScheduledTaskRun[];
 }
 
 interface ProjectSummary {
@@ -640,6 +651,11 @@ function saveScheduledTasks(tasks: ScheduledTask[]) {
   const temporaryFile = SCHEDULED_TASKS_FILE + ".tmp";
   fs.writeFileSync(temporaryFile, JSON.stringify(tasks, null, 2), { encoding: "utf-8", mode: 0o600 });
   fs.renameSync(temporaryFile, SCHEDULED_TASKS_FILE);
+}
+
+function appendScheduledTaskRun(task: ScheduledTask, run: ScheduledTaskRun) {
+  const history = Array.isArray(task.runs) ? task.runs : [];
+  task.runs = [run, ...history].slice(0, 10);
 }
 
 function loadProjects(): ProjectSummary[] {
@@ -1176,6 +1192,13 @@ app.get("/api/scheduled-tasks", (_req, res) => {
     .sort((a, b) => a.nextRunAt - b.nextRunAt));
 });
 
+app.get("/api/scheduled-tasks/:id/runs", (req, res) => {
+  const task = loadScheduledTasks().find(item => item.id === req.params.id);
+  if (!task) return res.status(404).json({ error: "Scheduled task not found." });
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ runs: (Array.isArray(task.runs) ? task.runs : []).slice(0, 10) });
+});
+
 app.post("/api/scheduled-tasks", (req, res) => {
   const title = typeof req.body?.title === "string" ? req.body.title.trim().slice(0, 120) : "";
   const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim().slice(0, 2000) : "";
@@ -1220,6 +1243,14 @@ app.post("/api/scheduled-tasks/:id/run", async (req, res) => {
     current.lastResult = result;
     current.lastError = undefined;
     current.runCount += 1;
+    appendScheduledTaskRun(current, {
+      id: "run_" + randomBytes(6).toString("hex"),
+      startedAt,
+      finishedAt,
+      status: "success",
+      trigger: "manual",
+      result: result.slice(0, 1500)
+    });
     if (current.frequency === "once") {
       current.enabled = false;
     } else if (current.nextRunAt <= finishedAt) {
@@ -1237,6 +1268,14 @@ app.post("/api/scheduled-tasks/:id/run", async (req, res) => {
       current.lastRunAt = failedAt;
       current.lastError = message;
       current.runCount += 1;
+      appendScheduledTaskRun(current, {
+        id: "run_" + randomBytes(6).toString("hex"),
+        startedAt,
+        finishedAt: failedAt,
+        status: "failed",
+        trigger: "manual",
+        error: message.slice(0, 1500)
+      });
       if (current.nextRunAt <= failedAt) {
         const retryDelay = current.frequency === "weekly" ? 604800000 : 86400000;
         current.nextRunAt = failedAt + retryDelay;
@@ -2674,10 +2713,19 @@ setInterval(() => {
         const latest = loadScheduledTasks();
         const current = latest.find(item => item.id === task.id);
         if (!current) return;
-        current.lastRunAt = Date.now();
+        const finishedAt = Date.now();
+        current.lastRunAt = finishedAt;
         current.lastResult = result;
         current.lastError = undefined;
         current.runCount += 1;
+        appendScheduledTaskRun(current, {
+          id: "run_" + randomBytes(6).toString("hex"),
+          startedAt: task.nextRunAt,
+          finishedAt,
+          status: "success",
+          trigger: "scheduled",
+          result: result.slice(0, 1500)
+        });
         if (current.frequency === "once") {
           current.enabled = false;
         } else {
@@ -2689,9 +2737,19 @@ setInterval(() => {
         const latest = loadScheduledTasks();
         const current = latest.find(item => item.id === task.id);
         if (current) {
-          current.lastRunAt = Date.now();
-          current.lastError = error instanceof Error ? error.message.slice(0, 1000) : "Scheduled task failed.";
+          const failedAt = Date.now();
+          const message = error instanceof Error ? error.message.slice(0, 1000) : "Scheduled task failed.";
+          current.lastRunAt = failedAt;
+          current.lastError = message;
           current.runCount += 1;
+          appendScheduledTaskRun(current, {
+            id: "run_" + randomBytes(6).toString("hex"),
+            startedAt: task.nextRunAt,
+            finishedAt: failedAt,
+            status: "failed",
+            trigger: "scheduled",
+            error: message.slice(0, 1500)
+          });
           // Retry once the next interval arrives; recurring tasks retain their intended cadence.
           const step = current.frequency === "weekly" ? 604800000 : 86400000;
           current.nextRunAt = Date.now() + step;
