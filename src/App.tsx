@@ -720,7 +720,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-zinc-950 font-sans text-zinc-100">
+    <div className="omnimind-shell flex h-screen w-screen overflow-hidden font-sans">
       <TaskNotificationsWatcher />
       {/* Sidebar */}
       <Sidebar

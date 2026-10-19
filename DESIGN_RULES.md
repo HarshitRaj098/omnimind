@@ -1,12 +1,14 @@
 # DESIGN_RULES.md — Custom Component System & Design Standards
 
 ## 1. Visual Identity & Design Philosophy
-OmniMind AI follows a restrained, Claude-inspired design constitution:
-- **Surfaces & Neutrals**: Warm off-white canvas in light mode (`#FAF9F6`), quiet dark slate in dark mode (`#0D0D10`).
-- **Typography**: High-legibility sans-serif with strict hierarchy and charcoal tones (`#23221E` light / `#F5F5F7` dark). Tabular numerals for metadata and timestamps.
-- **Accent Discipline**: Restrained terracotta accent (`#C66A45` / hover `#B55C37`) reserved strictly for primary actions, active tabs, and deliberate focus points.
-- **Zero-Pill & Metadata Discipline**: Never wrap informational labels, categories, dates, or statuses in rounded pill capsules or candy badges. Render metadata as clean, unboxed text with subtle typographic separators (`·`).
-- **Anti-AI-Slop Restraint**: Absolutely prohibit decorative glowing orbs, pulsating status dots, multi-colored icon scatter, and fake telemetry scoreboards.
+OmniMind AI uses a compact anime-webcore / Y2K accent layer over a restrained, readable workspace:
+- **Surfaces & Neutrals**: Soft lavender-white in light mode (`#F7F4FF`) and deep aubergine in the dark workspace (`#15121F`), with closely related raised surfaces.
+- **Typography**: High-legibility sans-serif with a clear hierarchy. Keep labels and metadata small, calm, and readable.
+- **Accent Discipline**: Lavender is the primary action/focus color; icy cyan and muted pink are occasional secondary accents, not competing colors on every control.
+- **Compact by default**: Preserve the current layout and density. Do not add oversized cards, decorative headers, large empty hero areas, or a new navigation layer.
+- **Retro details, not retro clutter**: A faint grid, small pixel-inspired details, and restrained hover/focus treatments are enough. Avoid heavy textures, mandatory animations, glowing orbs, pulsing dots, and fake telemetry.
+- **Zero-Pill & Metadata Discipline**: Informational labels, categories, dates, and statuses remain unboxed text with subtle typographic separators (`·`), unless a control genuinely needs a selected-state container.
+- **Preserve behavior**: Styling changes must not alter chat, connected-app, OAuth, memory, task scheduling, keyboard, or modal behavior.
 
 ## 2. Standardized Component System (`src/components/ui/`)
 All screens and dialogs must strictly use the unified component library:
