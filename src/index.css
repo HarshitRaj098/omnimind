@@ -208,3 +208,12 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* Geometric Y2K icon language: crisp facets, compact scale, no ornamental bulk. */
+.omnimind-shell .omni-icon-geometric {
+  shape-rendering: geometricPrecision;
+}
+.omnimind-shell .omni-icon-geometric :is(path, rect, circle, polygon, line) {
+  vector-effect: non-scaling-stroke;
+}
