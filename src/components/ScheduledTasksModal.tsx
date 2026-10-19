@@ -281,7 +281,6 @@ export const ScheduledTasksModal: React.FC<ScheduledTasksModalProps> = ({ isOpen
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Scheduled Tasks"
-      description="Persistent reminders and read-only connected-app checks. The server and this app tab must stay open for scheduled runs and browser alerts."
       icon={<AppIcon name="calendar" size={18} />} maxWidth="2xl"
       footer={<Button variant="secondary" onClick={onClose}>Close</Button>}>
       <div className="space-y-4">
