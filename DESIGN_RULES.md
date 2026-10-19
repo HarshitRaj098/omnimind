@@ -1,15 +1,15 @@
 # DESIGN_RULES.md — Custom Component System & Design Standards
 
 ## 1. Visual Identity & Design Philosophy
-OmniMind AI uses a compact anime-webcore / Y2K accent layer over a restrained, readable workspace:
-- **Surfaces & Neutrals**: Soft lavender-white in light mode (`#F7F4FF`) and deep aubergine in the dark workspace (`#15121F`), with closely related raised surfaces.
-- **Typography**: High-legibility sans-serif with a clear hierarchy. Keep labels and metadata small, calm, and readable.
-- **Accent Discipline**: Lavender is the primary action/focus color; icy cyan and muted pink are occasional secondary accents, not competing colors on every control.
-- **Compact by default**: Preserve the current layout and density. Do not add oversized cards, decorative headers, large empty hero areas, or a new navigation layer.
-- **Retro details, not retro clutter**: A faint grid, small pixel-inspired details, and restrained hover/focus treatments are enough. Avoid heavy textures, mandatory animations, glowing orbs, pulsing dots, and fake telemetry.
-- **Geometric Y2K icon grammar**: Use one bespoke SVG family with consistent 1.6px strokes. Prefer faceted diamonds, clipped-corner tiles, nested outlines, and simple orbital/crosshair details for the OmniMind mark. Reserve framed/diamond shapes for identity and key feature icons; keep ordinary action icons unboxed. Never use emoji as interface icons, mix icon libraries, or add decorative containers to every button.
+OmniMind AI uses an enterprise Y2K identity: precise, compact, technical, and restrained.
+- **Surfaces & Neutrals**: Use the shared semantic tokens for light and dark modes. Light mode is a cool lavender-white workspace; dark mode is deep aubergine. Do not hardcode a separate dark-only palette into the app shell.
+- **Accent Discipline**: Lavender is the primary brand/action color. Cyan is reserved for clear focus or a rare system highlight; pink is optional and never required for routine UI. Do not scatter multiple accent colors across icons.
+- **Geometry**: Use a single geometry rule—square-based forms with restrained clipped corners. Keep framing out of ordinary icons. The OmniMind mark is one simple clipped-square outline, not a stack of diamonds, rings, crosses, or orbit motifs.
+- **One icon family**: Keep the existing bespoke SVG icons, consistent 1.6px strokes, optical sizing, and alignment. Icons should communicate familiar actions first; brand geometry must not distort search, settings, chat, or integration symbols. Do not add per-icon shape options, decorative icon plates, emoji icons, or competing icon libraries.
+- **Compact by default**: Preserve existing layout density. No oversized cards, decorative headers, giant empty hero areas, or new navigation layers.
+- **Y2K as finish, not theme clutter**: Use a very faint grid and precise technical typography. No heavy textures, glow effects, pulsing dots, gratuitous animations, fake telemetry, or retro decorations without a functional reason.
 - **Zero-Pill & Metadata Discipline**: Informational labels, categories, dates, and statuses remain unboxed text with subtle typographic separators (`·`), unless a control genuinely needs a selected-state container.
-- **Preserve behavior**: Styling changes must not alter chat, connected-app, OAuth, memory, task scheduling, keyboard, or modal behavior.
+- **Preserve behavior**: Visual changes must not alter chat, connected-app, OAuth, memory, task scheduling, keyboard, modal, or responsive behavior.
 
 ## 2. Standardized Component System (`src/components/ui/`)
 All screens and dialogs must strictly use the unified component library:
@@ -33,7 +33,7 @@ All screens and dialogs must strictly use the unified component library:
 ## 3. Phased Implementation Plan
 
 ### Phase 1: Component System & Visual Cohesion Foundation (First Release Boundary)
-- [x] Standardize global CSS design tokens in `src/index.css` (warm Claude neutrals, charcoal typography, terracotta accents).
+- [x] Standardize global CSS design tokens in `src/index.css` (warm Claude neutrals, charcoal typography, lavender accents).
 - [x] Create reusable UI primitives in `src/components/ui/` (`Button`, `Modal`, `Input`, `Tabs`, `StatusText`).
 - [x] Unify icon family in `AppIcon.tsx` with consistent 1.6 stroke weight.
 - [x] Refactor all modals onto unified `Modal` component (`SettingsModal`, `ConnectedAppsModal`, `ResearchWorkspaceModal`, `SkillsWorkspaceModal`, `MemoryWorkspaceModal`, `VoiceModeModal`, `ShareModal`).
