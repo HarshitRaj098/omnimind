@@ -546,7 +546,6 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title="Connected Apps & Workspace"
-      description="Manage Google Workspace, YouTube Data, and external service tool integrations"
       icon={<AppIcon name="apps" size={18} />}
       maxWidth="xl"
       footer={
