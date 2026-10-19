@@ -7,6 +7,7 @@ OmniMind AI uses a compact anime-webcore / Y2K accent layer over a restrained, r
 - **Accent Discipline**: Lavender is the primary action/focus color; icy cyan and muted pink are occasional secondary accents, not competing colors on every control.
 - **Compact by default**: Preserve the current layout and density. Do not add oversized cards, decorative headers, large empty hero areas, or a new navigation layer.
 - **Retro details, not retro clutter**: A faint grid, small pixel-inspired details, and restrained hover/focus treatments are enough. Avoid heavy textures, mandatory animations, glowing orbs, pulsing dots, and fake telemetry.
+- **Geometric Y2K icon grammar**: Use one bespoke SVG family with consistent 1.6px strokes. Prefer faceted diamonds, clipped-corner tiles, nested outlines, and simple orbital/crosshair details for the OmniMind mark. Reserve framed/diamond shapes for identity and key feature icons; keep ordinary action icons unboxed. Never use emoji as interface icons, mix icon libraries, or add decorative containers to every button.
 - **Zero-Pill & Metadata Discipline**: Informational labels, categories, dates, and statuses remain unboxed text with subtle typographic separators (`·`), unless a control genuinely needs a selected-state container.
 - **Preserve behavior**: Styling changes must not alter chat, connected-app, OAuth, memory, task scheduling, keyboard, or modal behavior.
 
