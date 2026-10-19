@@ -2,33 +2,37 @@
 
 @layer base {
   :root {
-    --claude-bg: #FAF9F6;
-    --claude-surface: #FFFFFF;
-    --claude-sidebar: #F3F1EC;
+    --claude-bg: #F7F4FF;
+    --claude-surface: #FFFEFF;
+    --claude-sidebar: #F0EAFE;
     --claude-card: #FFFFFF;
-    --claude-text: #23221E;
-    --claude-text-secondary: #57554E;
-    --claude-text-muted: #7E7B73;
-    --claude-border: #E5E2DA;
-    --claude-border-subtle: #ECE9E2;
-    --claude-accent: #C66A45;
-    --claude-accent-hover: #B55C37;
-    --claude-accent-subtle: rgba(198, 106, 69, 0.1);
+    --claude-text: #28243A;
+    --claude-text-secondary: #625B78;
+    --claude-text-muted: #8D85A5;
+    --claude-border: #E5DDF5;
+    --claude-border-subtle: #F0EBF8;
+    --claude-accent: #8C75D7;
+    --claude-accent-hover: #775EC5;
+    --claude-accent-subtle: rgba(140, 117, 215, 0.12);
+    --omni-cyan: #73DDEB;
+    --omni-pink: #E8A7D4;
   }
 
   .dark {
-    --claude-bg: #0D0D10;
-    --claude-surface: #141418;
-    --claude-sidebar: #101013;
-    --claude-card: #18181D;
-    --claude-text: #F5F5F7;
-    --claude-text-secondary: #B5B5BE;
-    --claude-text-muted: #82828F;
-    --claude-border: #24242B;
-    --claude-border-subtle: #1C1C22;
-    --claude-accent: #D2724D;
-    --claude-accent-hover: #E0825E;
-    --claude-accent-subtle: rgba(210, 114, 77, 0.15);
+    --claude-bg: #15121F;
+    --claude-surface: #1D1929;
+    --claude-sidebar: #191523;
+    --claude-card: #241E32;
+    --claude-text: #F6F1FF;
+    --claude-text-secondary: #C7BEDC;
+    --claude-text-muted: #9589AD;
+    --claude-border: #39304D;
+    --claude-border-subtle: #2A2339;
+    --claude-accent: #B9A2FF;
+    --claude-accent-hover: #CCBAFF;
+    --claude-accent-subtle: rgba(185, 162, 255, 0.15);
+    --omni-cyan: #73DDEB;
+    --omni-pink: #E8A7D4;
   }
 }
 
@@ -154,5 +158,53 @@
     border-radius: 0.5rem;
     overflow-x: auto;
     margin-bottom: 1.25em;
+  }
+}
+
+
+/* Compact anime-webcore skin: recolors existing utility classes without changing layout or behavior. */
+.omnimind-shell {
+  --omni-shell-bg: #15121F;
+  --omni-shell-surface: #1D1929;
+  --omni-shell-raised: #241E32;
+  --omni-shell-text: #F6F1FF;
+  --omni-shell-secondary: #C7BEDC;
+  --omni-shell-muted: #9589AD;
+  --omni-shell-border: #39304D;
+  background-color: var(--omni-shell-bg);
+  color: var(--omni-shell-text);
+  background-image:
+    linear-gradient(rgba(185, 162, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(115, 221, 235, 0.02) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.omnimind-shell .bg-zinc-950 { background-color: var(--omni-shell-bg); }
+.omnimind-shell .bg-zinc-900 { background-color: var(--omni-shell-surface); }
+.omnimind-shell .bg-zinc-800 { background-color: var(--omni-shell-raised); }
+.omnimind-shell .bg-zinc-700 { background-color: var(--omni-shell-border); }
+.omnimind-shell .text-zinc-100,
+.omnimind-shell .text-zinc-200 { color: var(--omni-shell-text); }
+.omnimind-shell .text-zinc-300 { color: var(--omni-shell-secondary); }
+.omnimind-shell .text-zinc-400,
+.omnimind-shell .text-zinc-500 { color: var(--omni-shell-muted); }
+.omnimind-shell .border-zinc-800,
+.omnimind-shell .border-zinc-700 { border-color: var(--omni-shell-border); }
+.omnimind-shell .hover\\:bg-zinc-900:hover { background-color: var(--omni-shell-surface); }
+.omnimind-shell .hover\\:bg-zinc-800:hover { background-color: var(--omni-shell-raised); }
+.omnimind-shell .hover\\:text-zinc-100:hover { color: var(--omni-cyan); }
+.omnimind-shell :is(button, a, input, textarea, select):focus-visible {
+  outline: 2px solid var(--omni-cyan);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .omnimind-shell *,
+  .omnimind-shell *::before,
+  .omnimind-shell *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }
