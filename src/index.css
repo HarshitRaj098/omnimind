@@ -162,39 +162,32 @@
 }
 
 
-/* Compact anime-webcore skin: recolors existing utility classes without changing layout or behavior. */
+/* Enterprise Y2K visual layer: restrained geometry, semantic colors, no ornamental frames. */
 .omnimind-shell {
-  --omni-shell-bg: #15121F;
-  --omni-shell-surface: #1D1929;
-  --omni-shell-raised: #241E32;
-  --omni-shell-text: #F6F1FF;
-  --omni-shell-secondary: #C7BEDC;
-  --omni-shell-muted: #9589AD;
-  --omni-shell-border: #39304D;
-  background-color: var(--omni-shell-bg);
-  color: var(--omni-shell-text);
+  background-color: var(--claude-bg);
+  color: var(--claude-text);
   background-image:
-    linear-gradient(rgba(185, 162, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(115, 221, 235, 0.02) 1px, transparent 1px);
-  background-size: 24px 24px;
+    linear-gradient(color-mix(in srgb, var(--claude-border) 22%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--claude-border) 22%, transparent) 1px, transparent 1px);
+  background-size: 32px 32px;
 }
 
-.omnimind-shell .bg-zinc-950 { background-color: var(--omni-shell-bg); }
-.omnimind-shell .bg-zinc-900 { background-color: var(--omni-shell-surface); }
-.omnimind-shell .bg-zinc-800 { background-color: var(--omni-shell-raised); }
-.omnimind-shell .bg-zinc-700 { background-color: var(--omni-shell-border); }
+.omnimind-shell .bg-zinc-950 { background-color: var(--claude-bg); }
+.omnimind-shell .bg-zinc-900 { background-color: var(--claude-surface); }
+.omnimind-shell .bg-zinc-800 { background-color: var(--claude-card); }
+.omnimind-shell .bg-zinc-700 { background-color: var(--claude-border); }
 .omnimind-shell .text-zinc-100,
-.omnimind-shell .text-zinc-200 { color: var(--omni-shell-text); }
-.omnimind-shell .text-zinc-300 { color: var(--omni-shell-secondary); }
+.omnimind-shell .text-zinc-200 { color: var(--claude-text); }
+.omnimind-shell .text-zinc-300 { color: var(--claude-text-secondary); }
 .omnimind-shell .text-zinc-400,
-.omnimind-shell .text-zinc-500 { color: var(--omni-shell-muted); }
+.omnimind-shell .text-zinc-500 { color: var(--claude-text-muted); }
 .omnimind-shell .border-zinc-800,
-.omnimind-shell .border-zinc-700 { border-color: var(--omni-shell-border); }
-.omnimind-shell [class~="hover:bg-zinc-900"]:hover { background-color: var(--omni-shell-surface); }
-.omnimind-shell [class~="hover:bg-zinc-800"]:hover { background-color: var(--omni-shell-raised); }
-.omnimind-shell [class~="hover:text-zinc-100"]:hover { color: var(--omni-cyan); }
+.omnimind-shell .border-zinc-700 { border-color: var(--claude-border); }
+.omnimind-shell [class~="hover:bg-zinc-900"]:hover { background-color: var(--claude-surface); }
+.omnimind-shell [class~="hover:bg-zinc-800"]:hover { background-color: var(--claude-card); }
+.omnimind-shell [class~="hover:text-zinc-100"]:hover { color: var(--claude-accent); }
 .omnimind-shell :is(button, a, input, textarea, select):focus-visible {
-  outline: 2px solid var(--omni-cyan);
+  outline: 2px solid var(--claude-accent);
   outline-offset: 2px;
 }
 
@@ -207,13 +200,4 @@
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-
-/* Geometric Y2K icon language: crisp facets, compact scale, no ornamental bulk. */
-.omnimind-shell .omni-icon-geometric {
-  shape-rendering: geometricPrecision;
-}
-.omnimind-shell .omni-icon-geometric :is(path, rect, circle, polygon, line) {
-  vector-effect: non-scaling-stroke;
 }
