@@ -1,6 +1,7 @@
 import React from "react";
 
 export type IconName = 
+  | "omni-mark"
   | "new-chat"
   | "search"
   | "attach"
@@ -52,17 +53,27 @@ interface AppIconProps {
   name: IconName;
   size?: number | string;
   className?: string;
+  shape?: "none" | "tile" | "diamond";
 }
 
 export const AppIcon: React.FC<AppIconProps> = ({
   name,
   size = 18,
   className = "",
+  shape = "none",
 }) => {
   const strokeWidth = 1.6;
 
   const renderPath = () => {
     switch (name) {
+      case "omni-mark":
+        return (
+          <>
+            <path d="M12 2.5 21.5 8v8L12 21.5 2.5 16V8L12 2.5Z" strokeLinejoin="miter" />
+            <path d="M12 6.5 17 9.4v5.2L12 17.5 7 14.6V9.4L12 6.5Z" strokeLinejoin="miter" />
+            <path d="M12 9v6M9 12h6" strokeLinecap="square" />
+          </>
+        );
       case "new-chat":
         return (
           <>
@@ -369,9 +380,27 @@ export const AppIcon: React.FC<AppIconProps> = ({
       fill="none"
       stroke="currentColor"
       strokeWidth={strokeWidth}
-      className={`inline-block shrink-0 align-middle ${className}`}
+      className={`inline-block shrink-0 align-middle ${shape !== "none" ? "omni-icon-geometric " : ""}${className}`}
       aria-hidden="true"
     >
+      {shape === "tile" && (
+        <path
+          d="M4 1.75h11.5L22.25 8.5v11.75H4Z"
+          fill="var(--claude-accent-subtle)"
+          stroke="var(--claude-border)"
+          strokeWidth="1"
+          strokeLinejoin="miter"
+        />
+      )}
+      {shape === "diamond" && (
+        <path
+          d="M12 1.5 22.5 12 12 22.5 1.5 12Z"
+          fill="var(--claude-accent-subtle)"
+          stroke="var(--claude-border)"
+          strokeWidth="1"
+          strokeLinejoin="miter"
+        />
+      )}
       {renderPath()}
     </svg>
   );
