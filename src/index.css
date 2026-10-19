@@ -190,9 +190,9 @@
 .omnimind-shell .text-zinc-500 { color: var(--omni-shell-muted); }
 .omnimind-shell .border-zinc-800,
 .omnimind-shell .border-zinc-700 { border-color: var(--omni-shell-border); }
-.omnimind-shell .hover\\:bg-zinc-900:hover { background-color: var(--omni-shell-surface); }
-.omnimind-shell .hover\\:bg-zinc-800:hover { background-color: var(--omni-shell-raised); }
-.omnimind-shell .hover\\:text-zinc-100:hover { color: var(--omni-cyan); }
+.omnimind-shell [class~="hover:bg-zinc-900"]:hover { background-color: var(--omni-shell-surface); }
+.omnimind-shell [class~="hover:bg-zinc-800"]:hover { background-color: var(--omni-shell-raised); }
+.omnimind-shell [class~="hover:text-zinc-100"]:hover { color: var(--omni-cyan); }
 .omnimind-shell :is(button, a, input, textarea, select):focus-visible {
   outline: 2px solid var(--omni-cyan);
   outline-offset: 2px;
