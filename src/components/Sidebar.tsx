@@ -218,8 +218,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Header */}
         <div className="p-3.5 border-b border-[var(--claude-border)] flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 px-1">
-            <div className="w-7 h-7 rounded-lg bg-[var(--claude-accent)] flex items-center justify-center text-white shadow-xs">
-              <AppIcon name="sparkles" size={14} />
+            <div className="w-8 h-8 flex items-center justify-center text-[var(--claude-accent)] shrink-0">
+              <AppIcon name="omni-mark" size={27} shape="diamond" />
             </div>
             <div>
               <h1 className="font-semibold text-xs tracking-tight">OmniMind AI</h1>
