@@ -179,16 +179,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         <Button
           size="sm"
           variant="quiet"
+          className="!px-2"
           icon={<AppIcon name="apps" size={15} />}
           onClick={onOpenApps}
           aria-label="Open connected apps"
-          title="Open connected apps"
-        >
-          Apps
-        </Button>
-        <Button size="sm" variant="quiet" icon={<AppIcon name="calendar" size={15} />} onClick={onOpenTasks} aria-label="Open scheduled tasks" title="Open scheduled tasks">
-          Tasks
-        </Button>
+          title="Connected apps"
+        />
+        <Button
+          size="sm"
+          variant="quiet"
+          className="!px-2"
+          icon={<AppIcon name="calendar" size={15} />}
+          onClick={onOpenTasks}
+          aria-label="Open scheduled tasks"
+          title="Scheduled tasks"
+        />
         {hasMessages && (
           <Button
             size="sm"
