@@ -219,7 +219,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="p-3.5 border-b border-[var(--claude-border)] flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 px-1">
             <div className="w-8 h-8 flex items-center justify-center text-[var(--claude-accent)] shrink-0">
-              <AppIcon name="omni-mark" size={27} shape="diamond" />
+              <AppIcon name="omni-mark" size={23} />
             </div>
             <div>
               <h1 className="font-semibold text-xs tracking-tight">OmniMind AI</h1>
