@@ -14,14 +14,16 @@ let cachedAccessToken: string | null = null;
 let isSigningIn = false;
 
 export const WORKSPACE_SCOPES = [
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/drive.readonly",
-  "https://www.googleapis.com/auth/drive.file",
+  "https://www.googleapis.com/auth/spreadsheets",
+  "https://www.googleapis.com/auth/documents",
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/tasks.readonly",
-  "https://www.googleapis.com/auth/tasks",
   "https://www.googleapis.com/auth/youtube.readonly"
 ];
 
@@ -106,7 +108,7 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     for (const scope of WORKSPACE_SCOPES) {
       provider.addScope(scope);
     }
-    provider.setCustomParameters({ prompt: "consent" });
+    provider.setCustomParameters({ prompt: "select_account consent" });
 
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
@@ -137,19 +139,14 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
       return null;
     }
     if (error?.code === "auth/popup-blocked") {
-      try {
-        const auth = await getFirebaseAuth();
-        const provider = new GoogleAuthProvider();
-        for (const scope of WORKSPACE_SCOPES) {
-          provider.addScope(scope);
-        }
-        provider.setCustomParameters({ prompt: "consent" });
-        await signInWithRedirect(auth, provider);
-        return null;
-      } catch (redirectErr) {
-        console.error("Redirect sign-in failed:", redirectErr);
-        throw redirectErr;
+      const auth = await getFirebaseAuth();
+      const provider = new GoogleAuthProvider();
+      for (const scope of WORKSPACE_SCOPES) {
+        provider.addScope(scope);
       }
+      provider.setCustomParameters({ prompt: "consent" });
+      await signInWithRedirect(auth, provider);
+      return null;
     }
     throw error;
   } finally {

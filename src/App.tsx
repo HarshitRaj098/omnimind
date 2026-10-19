@@ -54,7 +54,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   
   const [settings, setSettings] = useState<AppSettings>({
-    model: "gemini-3.8-flash",
+    model: "gemini-2.5-flash",
     temperature: 0.7,
     systemInstruction: "",
     defaultPersona: "dragon_queen",

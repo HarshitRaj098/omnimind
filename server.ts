@@ -1843,34 +1843,43 @@ function githubOAuthConfig() {
 
 // Connected Apps: Google and GitHub OAuth
 const GOOGLE_OAUTH_SCOPES = [
-  "openid",
   "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/drive.readonly",
-  "https://www.googleapis.com/auth/documents.readonly",
-  "https://www.googleapis.com/auth/documents",
-  "https://www.googleapis.com/auth/spreadsheets.readonly",
   "https://www.googleapis.com/auth/spreadsheets",
+  "https://www.googleapis.com/auth/documents",
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/tasks.readonly",
-  "https://www.googleapis.com/auth/tasks",
   "https://www.googleapis.com/auth/youtube.readonly"
 ];
 
 function googleOAuthConfig() {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
+  let clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const appUrl = process.env.APP_URL?.replace(/\/$/, "");
   const redirectUri = process.env.GOOGLE_REDIRECT_URI || (appUrl ? `${appUrl}/api/apps/google/callback` : "");
-  const hasFirebaseConfig = fs.existsSync(path.join(process.cwd(), "firebase-applet-config.json"));
+  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+  let hasFirebaseConfig = false;
+  if (fs.existsSync(configPath)) {
+    hasFirebaseConfig = true;
+    try {
+      const fbConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      if (!clientId && fbConfig.oAuthClientId) {
+        clientId = fbConfig.oAuthClientId;
+      }
+    } catch {
+      // ignore
+    }
+  }
   return {
     clientId,
     clientSecret,
     redirectUri,
     hasFirebaseConfig,
-    configured: Boolean((clientId && clientSecret && redirectUri) || hasFirebaseConfig)
+    configured: Boolean(clientId && redirectUri)
   };
 }
 
@@ -2010,7 +2019,7 @@ app.get("/api/apps/google/callback", async (req, res) => {
       body: new URLSearchParams({
         code,
         client_id: config.clientId!,
-        client_secret: config.clientSecret!,
+        ...(config.clientSecret ? { client_secret: config.clientSecret } : {}),
         redirect_uri: config.redirectUri,
         grant_type: "authorization_code"
       })

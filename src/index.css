@@ -2,34 +2,58 @@
 
 @layer base {
   :root {
-    --claude-bg: #FAF9F6;
+    --claude-bg: #F7F5FC;
     --claude-surface: #FFFFFF;
-    --claude-sidebar: #F3F1EC;
+    --claude-sidebar: #EDE8F7;
     --claude-card: #FFFFFF;
-    --claude-text: #23221E;
-    --claude-text-secondary: #57554E;
-    --claude-text-muted: #7E7B73;
-    --claude-border: #E5E2DA;
-    --claude-border-subtle: #ECE9E2;
-    --claude-accent: #C66A45;
-    --claude-accent-hover: #B55C37;
-    --claude-accent-subtle: rgba(198, 106, 69, 0.1);
+    --claude-text: #2A2438;
+    --claude-text-secondary: #635B7A;
+    --claude-text-muted: #8E85A8;
+    --claude-border: #D8CEEC;
+    --claude-border-subtle: #EBE4F7;
+    --claude-accent: #8E64E3;
+    --claude-accent-hover: #7A50D1;
+    --claude-accent-subtle: rgba(142, 100, 227, 0.12);
+    --claude-pink: #E879B5;
+    --claude-cyan: #4ECDC4;
+    --claude-y2k-border: #8E64E3;
   }
 
   .dark {
-    --claude-bg: #0D0D10;
-    --claude-surface: #141418;
-    --claude-sidebar: #101013;
-    --claude-card: #18181D;
-    --claude-text: #F5F5F7;
-    --claude-text-secondary: #B5B5BE;
-    --claude-text-muted: #82828F;
-    --claude-border: #24242B;
-    --claude-border-subtle: #1C1C22;
-    --claude-accent: #D2724D;
-    --claude-accent-hover: #E0825E;
-    --claude-accent-subtle: rgba(210, 114, 77, 0.15);
+    --claude-bg: #0C0A14;
+    --claude-surface: #141122;
+    --claude-sidebar: #100E1C;
+    --claude-card: #1B172E;
+    --claude-text: #F3EEFF;
+    --claude-text-secondary: #B4A9D6;
+    --claude-text-muted: #8578AD;
+    --claude-border: #2B2442;
+    --claude-border-subtle: #1F1933;
+    --claude-accent: #9D75FF;
+    --claude-accent-hover: #B08FFF;
+    --claude-accent-subtle: rgba(157, 117, 255, 0.18);
+    --claude-pink: #FF85C0;
+    --claude-cyan: #56DFD5;
+    --claude-y2k-border: #9D75FF;
   }
+}
+
+/* Anime Webcore & Y2K decorative touches */
+.anime-badge {
+  font-size: 9px;
+  font-family: monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--claude-accent-subtle);
+  color: var(--claude-accent);
+  border: 1px dashed var(--claude-border);
+}
+
+.anime-card-glow {
+  box-shadow: 0 4px 20px -4px rgba(142, 100, 227, 0.08);
+  border: 1px solid var(--claude-border);
 }
 
 /* Custom Component Standard Classes */

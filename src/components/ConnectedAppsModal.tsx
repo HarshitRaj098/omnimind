@@ -112,15 +112,17 @@ export const ConnectedAppsModal: React.FC<ConnectedAppsModalProps> = ({
     setWorkspaceError(null);
     setTestResult(null);
     try {
-      const auth = await getFirebaseAuth();
-      const provider = new GoogleAuthProvider();
-      for (const scope of WORKSPACE_SCOPES) {
-        provider.addScope(scope);
+      const res = await googleSignIn();
+      if (!res) {
+        setTestResult("Sign-in window was closed.");
+        return;
       }
-      provider.setCustomParameters({ prompt: "consent" });
-      await signInWithRedirect(auth, provider);
+      setGoogleAccountEmail(res.user.email || null);
+      await fetchApps();
+      setTestResult("Google account connected successfully!");
     } catch (error: any) {
-      setTestResult(error?.message || "Failed to initiate Google sign in.");
+      setTestResult(error?.message || "Failed to sign in with Google.");
+    } finally {
       setLoading(false);
     }
   };
