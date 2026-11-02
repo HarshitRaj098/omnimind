@@ -13,14 +13,14 @@ export interface CompatibleChatOptions {
 }
 
 /**
- * Streams text from any OpenAI-compatible chat-completions endpoint.
- * Works with Ollama's OpenAI-compatible API and compatible self-hosted servers.
- * It deliberately exposes only text chunks: provider-specific tools/grounding
- * remain the responsibility of the primary provider adapter.
+ * Opens a stream from an OpenAI-compatible chat-completions endpoint.
+ * Supports Ollama, llama.cpp servers, and compatible hosted/self-hosted APIs.
+ * The adapter intentionally exposes text only; tools and web grounding remain
+ * with the primary provider until each provider has a safe tool-call adapter.
  */
-export async function* streamCompatibleChat(
+export async function streamCompatibleChat(
   options: CompatibleChatOptions
-): AsyncGenerator<{ text: string }> {
+): Promise<AsyncIterable<{ text: string }>> {
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
   if (!/^https?:\/\//i.test(baseUrl)) {
     throw new Error("AI_COMPATIBLE_BASE_URL must be an HTTP(S) URL.");
@@ -53,54 +53,57 @@ export async function* streamCompatibleChat(
   }
   if (!response.body) throw new Error("Compatible AI provider returned no response stream.");
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+  async function* readStream(): AsyncGenerator<{ text: string }> {
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
 
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      buffer += decoder.decode(value, { stream: !done });
-      const events = buffer.split(/\r?\n/);
-      buffer = events.pop() || "";
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        const events = buffer.split(/\r?\n/);
+        buffer = events.pop() || "";
 
-      for (const line of events) {
-        if (!line.startsWith("data:")) continue;
-        const payload = line.slice(5).trim();
-        if (!payload || payload === "[DONE]") continue;
-        let parsed: any;
-        try {
-          parsed = JSON.parse(payload);
-        } catch {
-          continue;
-        }
-        const text = parsed?.choices?.[0]?.delta?.content;
-        if (typeof text === "string" && text.length > 0) yield { text };
-        else if (Array.isArray(text)) {
-          for (const part of text) {
-            if (typeof part?.text === "string" && part.text) yield { text: part.text };
+        for (const line of events) {
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          let parsed: any;
+          try {
+            parsed = JSON.parse(payload);
+          } catch {
+            continue;
+          }
+          const delta = parsed?.choices?.[0]?.delta?.content;
+          if (typeof delta === "string" && delta.length > 0) yield { text: delta };
+          else if (Array.isArray(delta)) {
+            for (const part of delta) {
+              if (typeof part?.text === "string" && part.text) yield { text: part.text };
+            }
+          }
+          if (parsed?.error) {
+            throw new Error(typeof parsed.error === "string" ? parsed.error : JSON.stringify(parsed.error));
           }
         }
-        if (parsed?.error) {
-          throw new Error(typeof parsed.error === "string" ? parsed.error : JSON.stringify(parsed.error));
+        if (done) break;
+      }
+      if (buffer.startsWith("data:")) {
+        const payload = buffer.slice(5).trim();
+        if (payload && payload !== "[DONE]") {
+          try {
+            const parsed = JSON.parse(payload);
+            const delta = parsed?.choices?.[0]?.delta?.content;
+            if (typeof delta === "string" && delta) yield { text: delta };
+          } catch {
+            // Ignore a truncated final SSE event; already received text remains valid.
+          }
         }
       }
-
-      if (done) break;
+    } finally {
+      reader.releaseLock();
     }
-    if (buffer.startsWith("data:")) {
-      const payload = buffer.slice(5).trim();
-      if (payload && payload !== "[DONE]") {
-        try {
-          const parsed = JSON.parse(payload);
-          const text = parsed?.choices?.[0]?.delta?.content;
-          if (typeof text === "string" && text) yield { text };
-        } catch {
-          // Ignore a truncated final SSE event; already received text remains valid.
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
   }
+
+  return readStream();
 }
