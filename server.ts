@@ -6,6 +6,7 @@ import { randomBytes } from "node:crypto";
 import AdmZip from "adm-zip";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import { streamCompatibleChat } from "./inferenceRouter.js";
 
 dotenv.config();
 
@@ -3836,9 +3837,58 @@ app.post("/api/chat/stream", async (req, res) => {
       // A quota error is not fixed by repeating the same request without search.
       // Try one distinct, configured Flash fallback; never fall back to the deprecated 2.5 Pro ID.
       if (isGeminiQuotaError(primaryErr) || isGeminiModelUnavailableError(primaryErr)) {
-        if (fallbackModel === primaryModel) throw primaryErr;
-        console.warn(`Primary Gemini model ${primaryModel} is unavailable or quota-limited; trying ${fallbackModel} once.`);
-        resultStream = await initStream(fallbackModel, false);
+        // Prefer an explicitly configured OpenAI-compatible endpoint (Ollama,
+        // llama.cpp, or another compatible server) before consuming another
+        // hosted-provider quota. This path is text/tool-free; Gemini remains
+        // responsible for search grounding and connected-app function calls.
+        const compatibleBaseUrl = process.env.AI_COMPATIBLE_BASE_URL?.trim();
+        const compatibleModel = process.env.AI_COMPATIBLE_MODEL?.trim();
+        if (compatibleBaseUrl && compatibleModel) {
+          try {
+            const compatibleUserContent: Array<Record<string, unknown>> = [
+              { type: "text", text: String(message || "Please inspect the attached files.") }
+            ];
+            for (const att of attachments || []) {
+              if (typeof att?.data !== "string") continue;
+              const match = att.data.match(/^data:([^;]+);base64,(.+)$/);
+              if (!match) continue;
+              const mimeType = match[1];
+              if (mimeType.startsWith("image/")) {
+                compatibleUserContent.push({
+                  type: "image_url",
+                  image_url: { url: `data:${mimeType};base64,${match[2]}` }
+                });
+              } else if (mimeType.startsWith("text/") || /json|javascript|xml|csv/.test(mimeType)) {
+                const textContent = Buffer.from(match[2], "base64").toString("utf-8");
+                compatibleUserContent.push({ type: "text", text: `\n[Attached file: ${att.name}]\n${textContent.slice(0, 12000)}` });
+              }
+            }
+            const compatibleMessages = [
+              { role: "system" as const, content: systemInstruction },
+              ...history.map((item: any) => ({
+                role: item.role === "model" ? "assistant" as const : "user" as const,
+                content: item.parts.map((part: any) => part.text || "").join("\n")
+              })),
+              { role: "user" as const, content: compatibleUserContent }
+            ];
+            console.warn(`Gemini unavailable/quota-limited; routing to compatible provider model ${compatibleModel}.`);
+            resultStream = streamCompatibleChat({
+              baseUrl: compatibleBaseUrl,
+              model: compatibleModel,
+              apiKey: process.env.AI_COMPATIBLE_API_KEY,
+              messages: compatibleMessages,
+              temperature: settings.temperature ?? 0.7
+            });
+          } catch (compatibleError) {
+            console.warn("Compatible provider fallback failed:", compatibleError);
+            if (fallbackModel === primaryModel) throw compatibleError;
+            resultStream = await initStream(fallbackModel, false);
+          }
+        } else {
+          if (fallbackModel === primaryModel) throw primaryErr;
+          console.warn(`Primary Gemini model ${primaryModel} is unavailable or quota-limited; trying ${fallbackModel} once.`);
+          resultStream = await initStream(fallbackModel, false);
+        }
       } else if (useSearch) {
         // Search grounding itself may fail; retry the same model once without grounding.
         console.log("Retrying the primary model without search grounding...");
