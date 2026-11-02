@@ -3872,7 +3872,7 @@ app.post("/api/chat/stream", async (req, res) => {
               { role: "user" as const, content: compatibleUserContent }
             ];
             console.warn(`Gemini unavailable/quota-limited; routing to compatible provider model ${compatibleModel}.`);
-            resultStream = streamCompatibleChat({
+            resultStream = await streamCompatibleChat({
               baseUrl: compatibleBaseUrl,
               model: compatibleModel,
               apiKey: process.env.AI_COMPATIBLE_API_KEY,
