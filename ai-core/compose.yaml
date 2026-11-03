@@ -1,0 +1,44 @@
+services:
+  database:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: omnimind
+      POSTGRES_USER: omnimind
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in ai-core/.env}
+    volumes:
+      - omnimind_ai_core_data:/var/lib/postgresql/data
+      - ./migrations/001_memory.sql:/docker-entrypoint-initdb.d/001_memory.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omnimind -d omnimind"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - private
+
+  ai-core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://omnimind:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in ai-core/.env}@database:5432/omnimind
+      DATABASE_SSL: "false"
+      AI_CORE_PORT: "8787"
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8787:8787"
+    networks:
+      - private
+
+volumes:
+  omnimind_ai_core_data:
+
+networks:
+  private:
+    driver: bridge
