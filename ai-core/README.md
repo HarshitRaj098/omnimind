@@ -69,6 +69,23 @@ launched by `npx` inside the container, so the host must permit outbound access
 to the package registry at startup. Supply resource limits, a read-only target
 workspace, and restricted network egress at the container platform level.
 
+For a local private stack, create `ai-core/.env` from the example, add `POSTGRES_PASSWORD`,
+then run:
+
+```bash
+cd ai-core
+docker compose up --build -d
+docker compose ps
+docker compose logs -f ai-core
+```
+
+The API is bound to `127.0.0.1:8787` by default, not exposed on every host
+interface. The database is private to the Compose network and persists in a
+named volume. The SQL migration is applied automatically only when PostgreSQL
+initializes an empty data volume; apply later migrations explicitly. Set a
+long random `AI_CORE_API_KEY`, model provider settings and `POSTGRES_PASSWORD`
+in the untracked `.env` file. Do not commit it.
+
 This initial Docker build uses `npm install` because the repository does not
 yet contain an AI Core lockfile. Generate and commit a reviewed lockfile before
 using the image for reproducible production releases.
