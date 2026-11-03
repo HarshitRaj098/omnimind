@@ -163,7 +163,7 @@ app.post("/v1/agent/run", authenticate, async (req, res) => {
         memoryContext = memories
           .filter((item: any) => Number(item.similarity) >= 0.35)
           .map((item: any) => `[source=${item.source_type}; similarity=${Number(item.similarity).toFixed(2)}] ${item.content}`)
-          .join("\\n\\n")
+          .join("\n\n")
           .slice(0, 18000);
       }
     }
