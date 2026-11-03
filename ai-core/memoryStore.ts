@@ -41,11 +41,13 @@ export async function connectMemoryStore() {
     max: 10,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 10000,
-    ...(config.databaseUrl.startsWith("postgres://") || config.databaseUrl.startsWith("postgresql://")
-      ? { ssl: config.databaseSsl ? { rejectUnauthorized: false } : undefined }
-      : {})
+    ...(config.databaseSsl ? { ssl: true } : {})
   });
   await pool.query("SELECT 1");
+  const schema = await pool.query("SELECT to_regclass('public.ai_memory_chunks') AS chunks, to_regclass('public.ai_memory_conversations') AS conversations");
+  if (!schema.rows[0]?.chunks || !schema.rows[0]?.conversations) {
+    throw new Error("Memory schema is missing. Apply migrations/001_memory.sql before starting AI Core.");
+  }
   return true;
 }
 
