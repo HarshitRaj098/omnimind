@@ -65,7 +65,7 @@ export async function runAgent(inputMessages: ChatMessage[], signal?: AbortSigna
         tools: tools.length ? tools : undefined,
         tool_choice: tools.length ? "auto" : undefined
       }),
-      signal: signal || AbortSignal.timeout(config.requestTimeoutMs)
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(config.requestTimeoutMs)]) : AbortSignal.timeout(config.requestTimeoutMs)
     });
 
     if (!response.ok) {
@@ -87,7 +87,8 @@ export async function runAgent(inputMessages: ChatMessage[], signal?: AbortSigna
       };
     }
 
-    for (const call of calls) {
+    const boundedCalls = calls.slice(0, 8);
+    for (const call of boundedCalls) {
       const actualName = toolMap.get(call.function?.name);
       if (!actualName) {
         messages.push({
@@ -101,7 +102,9 @@ export async function runAgent(inputMessages: ChatMessage[], signal?: AbortSigna
 
       let args: Record<string, unknown>;
       try {
-        args = JSON.parse(call.function.arguments || "{}");
+        const parsed: unknown = JSON.parse(call.function.arguments || "{}");
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Tool arguments must be a JSON object.");
+        args = parsed as Record<string, unknown>;
       } catch {
         messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ error: "Invalid JSON arguments." }) });
         trace.push({ type: "tool", name: actualName, status: "invalid_arguments" });
@@ -122,6 +125,9 @@ export async function runAgent(inputMessages: ChatMessage[], signal?: AbortSigna
         messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ error: message }) });
         trace.push({ type: "tool", name: actualName, status: "failed" });
       }
+    }
+    if (calls.length > boundedCalls.length) {
+      messages.push({ role: "system", content: "The tool-call batch was capped at eight calls for resource safety. Continue with the most important remaining operation only if needed." });
     }
   }
 
