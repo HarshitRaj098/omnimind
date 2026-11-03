@@ -3787,7 +3787,7 @@ app.post("/api/chat/stream", async (req, res) => {
   try {
     // Optional REA-powered AI Core bridge. The main app remains responsible for
     // conversation storage and its existing consent-aware memory pipeline.
-    const aiCoreUrl = (process.env.AI_CORE_URL || "").replace(/\\/+$/, "");
+    const aiCoreUrl = (process.env.AI_CORE_URL || "").replace(/\/+$/, "");
     const aiCoreKey = process.env.AI_CORE_API_KEY || "";
     if (agentMode && aiCoreUrl && aiCoreKey) {
       const agentMessages = [
@@ -3820,7 +3820,7 @@ app.post("/api/chat/stream", async (req, res) => {
       }
       const answer = aiCorePayload.answer;
       if (answer) {
-        res.write(`data: ${JSON.stringify({ text: answer, done: false })}\\n\\n`);
+        res.write(`data: ${JSON.stringify({ text: answer, done: false })}\n\n`);
       }
       const modelMsg: Message = {
         id: "msg_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
@@ -3831,7 +3831,7 @@ app.post("/api/chat/stream", async (req, res) => {
       conv.messages.push(modelMsg);
       conv.updatedAt = Date.now();
       saveConversations(convs);
-      res.write(`data: ${JSON.stringify({ done: true, conversationId: conv.id, agent: "rea", toolCalls: aiCorePayload.toolCalls || [] })}\\n\\n`);
+      res.write(`data: ${JSON.stringify({ done: true, conversationId: conv.id, agent: "rea", toolCalls: aiCorePayload.toolCalls || [] })}\n\n`);
       res.end();
       return;
     }
