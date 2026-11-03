@@ -71,11 +71,13 @@ model tool definitions from clients.
 
 ## Model parameters
 
-The runtime exposes temperature, top-p, maximum output tokens, timeout and
-maximum tool rounds. These are inference controls, not parameter-count controls.
-A model's actual parameter count, context window, quantization and reasoning
-features are determined by the selected model/provider. Unsupported parameters
-must not be assumed to work.
+The runtime exposes temperature, top-p, optional top-k, frequency penalty,
+presence penalty, optional reasoning effort, maximum output tokens, request
+timeout and maximum tool rounds. Provider support varies; unsupported fields
+must be omitted or disabled for that provider. These are inference controls,
+not model parameter-count controls. A model's actual parameter count, context
+window, quantization and reasoning features are determined by the selected
+model/provider.
 
 ## Security boundaries
 
