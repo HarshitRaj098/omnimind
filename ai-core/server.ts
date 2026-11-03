@@ -10,6 +10,14 @@ const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: config.maxRequestBytes }));
 
+let ready = false;
+let agentQueue: Promise<unknown> = Promise.resolve();
+function runAgentSerial(messages: any[], signal: AbortSignal) {
+  const task = agentQueue.then(() => runAgent(messages, signal));
+  agentQueue = task.catch(() => undefined);
+  return task;
+}
+
 function authenticate(req: express.Request, res: express.Response, next: express.NextFunction) {
   const supplied = req.header("authorization")?.replace(/^Bearer\s+/i, "") || "";
   const expected = Buffer.from(config.apiKey);
@@ -21,14 +29,16 @@ function authenticate(req: express.Request, res: express.Response, next: express
 }
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", service: "omnimind-ai-core", reaConnected: getReaTools().length > 0 });
+  res.status(ready ? 200 : 503).json({ status: ready ? "ok" : "starting", service: "omnimind-ai-core", reaConnected: ready && getReaTools().length > 0 });
 });
 
 app.get("/v1/rea/tools", authenticate, (_req, res) => {
+  if (!ready) return res.status(503).json({ error: "AI Core is not ready." });
   res.json({ tools: getReaTools().map(({ name, description }) => ({ name, description })) });
 });
 
 app.post("/v1/agent/run", authenticate, async (req, res) => {
+  if (!ready) return res.status(503).json({ error: "AI Core is not ready; REA is not connected." });
   const messages = req.body?.messages;
   if (!Array.isArray(messages) || messages.length === 0 || messages.length > 100) {
     return res.status(400).json({ error: "messages must be a non-empty array with at most 100 entries." });
@@ -44,7 +54,7 @@ app.post("/v1/agent/run", authenticate, async (req, res) => {
     if (!res.writableEnded) controller.abort();
   });
   try {
-    const result = await runAgent(messages, controller.signal);
+    const result = await runAgentSerial(messages, controller.signal);
     if (!res.headersSent && !res.destroyed) res.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Agent execution failed.";
@@ -55,6 +65,7 @@ app.post("/v1/agent/run", authenticate, async (req, res) => {
 const server = app.listen(config.port, "0.0.0.0", async () => {
   try {
     const tools = await connectRea();
+    ready = true;
     console.log(`AI Core listening on :${config.port}; connected to REA with ${tools.length} tools.`);
   } catch (error) {
     console.error("REA connection failed; API remains unavailable until restart:", error);
