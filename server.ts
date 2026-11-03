@@ -3785,6 +3785,57 @@ app.post("/api/chat/stream", async (req, res) => {
   });
 
   try {
+    // Optional REA-powered AI Core bridge. The main app remains responsible for
+    // conversation storage and its existing consent-aware memory pipeline.
+    const aiCoreUrl = (process.env.AI_CORE_URL || "").replace(/\\/+$/, "");
+    const aiCoreKey = process.env.AI_CORE_API_KEY || "";
+    if (agentMode && aiCoreUrl && aiCoreKey) {
+      const agentMessages = [
+        ...conv.messages.slice(0, -1).slice(-12).map(item => ({
+          role: item.role === "user" ? "user" : "assistant",
+          content: item.content.slice(-4000)
+        })),
+        { role: "user", content: String(message || "") }
+      ];
+      const aiCoreResponse = await fetch(`${aiCoreUrl}/v1/agent/run`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${aiCoreKey}`
+        },
+        body: JSON.stringify({ messages: agentMessages, memoryContext }),
+        signal: AbortSignal.timeout(180000)
+      });
+      const aiCorePayload = await aiCoreResponse.json().catch(() => ({})) as {
+        answer?: string;
+        error?: string;
+        toolCalls?: Array<{ name: string; status: string }>;
+      };
+      if (!aiCoreResponse.ok || typeof aiCorePayload.answer !== "string") {
+        throw new Error(aiCorePayload.error || `AI Core request failed (HTTP ${aiCoreResponse.status}).`);
+      }
+      if (isAborted) {
+        res.end();
+        return;
+      }
+      const answer = aiCorePayload.answer;
+      if (answer) {
+        res.write(`data: ${JSON.stringify({ text: answer, done: false })}\\n\\n`);
+      }
+      const modelMsg: Message = {
+        id: "msg_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
+        role: "model",
+        content: answer || "Agent completed without a text response.",
+        timestamp: Date.now()
+      };
+      conv.messages.push(modelMsg);
+      conv.updatedAt = Date.now();
+      saveConversations(convs);
+      res.write(`data: ${JSON.stringify({ done: true, conversationId: conv.id, agent: "rea", toolCalls: aiCorePayload.toolCalls || [] })}\\n\\n`);
+      res.end();
+      return;
+    }
+
     let resultStream: any = null;
     let activeGroundingEnabled = useSearch;
 
