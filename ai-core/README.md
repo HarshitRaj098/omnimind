@@ -5,37 +5,25 @@ OpenAI-compatible reasoning model with REA's MCP reverse-engineering tools.
 
 ## Capabilities
 
-- Connects to REA over Streamable HTTP MCP.
-- Discovers the installed REA tool catalog at startup.
+- Launches the official REA CLI as a child process over stdio MCP.
+- Discovers the REA tool catalog at startup.
 - Exposes those tools to an OpenAI-compatible model as function tools.
 - Runs a bounded tool-call loop and returns the model's answer plus a tool trace.
-- Exposes authenticated HTTP endpoints for a future Hermes integration.
-- Keeps the REA MCP listener on loopback; REA's HTTP transport does not provide
-  client authentication.
-
-REA can inspect supported software artifacts and runtime behavior when the
-required local analysis providers are installed. It cannot guarantee recovery
-of original source code or bypass access controls.
+- Exposes authenticated HTTP endpoints for a future Hermes/OmniMind backend integration.
+- Keeps REA local to the AI Core process; no public REA MCP listener is opened.
 
 ## Requirements
 
-- Node.js 22.23.4+ (use a current supported Node 22/24 release).
+- Node.js 22.19+ or 24.11+ as required by current REA releases.
 - npm.
-- REA installed from the official `morluto/rea` project.
+- REA from the official [morluto/rea project](https://github.com/morluto/rea).
 - A compatible inference provider and model.
-- Required REA analysis providers for the target (for example Ghidra/JADX/Hopper
-  depending on the artifact).
+- Required REA analysis providers for the target (for example Hopper, Ghidra or IDA for deep native analysis).
 
 ## Run locally
 
-1. Install REA using its official setup and verify it with `rea doctor`.
-2. Start the REA HTTP MCP listener on loopback only:
-
-   ```bash
-   rea mcp --http --host 127.0.0.1 --port 8765
-   ```
-
-3. In another terminal:
+1. Install and verify REA using its official instructions. For a basic CLI check, run `npx -y rea-agents doctor`.
+2. In a terminal, configure the AI Core environment:
 
    ```bash
    cd ai-core
@@ -43,13 +31,20 @@ of original source code or bypass access controls.
    npm install
    ```
 
-4. Set `AI_CORE_API_KEY`, `AI_CORE_MODEL_BASE_URL`, `AI_CORE_MODEL`, and
+3. Set `AI_CORE_API_KEY`, `AI_CORE_MODEL_BASE_URL`, `AI_CORE_MODEL`, and
    `AI_CORE_MODEL_API_KEY` in the environment. Do not commit credentials.
-5. Start the API:
+4. The default REA launch command is `npx -y rea-agents mcp`. Override it only
+   when your installed REA version requires a different executable or arguments:
 
    ```bash
-   npm run dev
+   REA_MCP_COMMAND=npx
+   REA_MCP_ARGS_JSON='["-y","rea-agents","mcp"]'
    ```
+
+5. Start the API with `npm run dev`.
+
+The AI Core starts REA itself and performs the MCP handshake/tool discovery. Do
+not start a second REA MCP server for this integration.
 
 ## API
 
@@ -81,8 +76,8 @@ model/provider.
 
 ## Security boundaries
 
-- Keep REA's HTTP MCP endpoint on loopback. Its HTTP transport is unauthenticated
-  and stateful; do not bind it to a public interface.
+- The REA MCP process is launched locally as a child process; do not replace
+  this with a public unauthenticated MCP endpoint.
 - Put the AI Core API behind TLS and a strong bearer secret or the host app's
   authentication middleware.
 - Run analysis in a disposable, resource-limited container with no production
@@ -91,15 +86,16 @@ model/provider.
   data. Never execute extracted code automatically.
 - Add per-user authorization, rate limits, audit logs, workspace isolation and
   request quotas before multi-user production deployment.
-- This initial version is synchronous and single-session with REA. Do not run
-  concurrent agent requests against the same REA process until session isolation
-  is implemented.
+- This initial version is synchronous and single-session with one REA process.
+  Do not run concurrent agent requests against the same REA process until
+  session isolation is implemented.
 - No deployment, model training, or live REA/provider verification is included
-  in this source-only foundation.
+  in this source foundation.
 
-## Hermes connection (later phase)
+## Hermes/OmniMind connection (later phase)
 
-Hermes should call `POST /v1/agent/run` from its authenticated backend, passing
-the conversation messages and the AI Core bearer credential server-side. Do not
-place the credential in browser code. Deploy AI Core and REA together in a
-trusted container because REA's loopback MCP process must be reachable locally.
+The host backend should call `POST /v1/agent/run` from its authenticated
+server-side code, passing conversation messages and the AI Core bearer
+credential server-side. Do not place the credential in browser code. Deploy
+AI Core and REA together in a trusted container so the local stdio process is
+available to the API.
