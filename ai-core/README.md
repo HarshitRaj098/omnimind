@@ -67,9 +67,11 @@ browser-supplied user ID or expose the AI Core credential in frontend code.
 
 Allowed memory source types are `conversation`, `document`, `codebase` and
 `note`. Ingestion embeds the supplied text and stores it in pgvector. The
-current endpoint accepts one chunk of up to 12,000 characters; file parsing,
-chunking, background ingestion and automatic memory injection into agent
-prompts are follow-up work.
+The current endpoint accepts one chunk of up to 12,000 characters. When the host
+backend sends both `userId` and `conversationId` to `POST /v1/agent/run`, the
+AI Core stores the latest user message and assistant answer, retrieves up to six
+relevant memory chunks, and injects matching results into the model's system
+context. File parsing, automatic chunking and background ingestion are follow-up work.
 
 If `DATABASE_URL` is omitted, AI Core can start without memory, but memory
 endpoints return HTTP 503. The health endpoint reports `memoryConnected`.
