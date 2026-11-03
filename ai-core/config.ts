@@ -3,7 +3,7 @@ const numberFromEnv = (name: string, fallback: number, min: number, max: number)
   if (!raw) return fallback;
   const value = Number(raw);
   if (!Number.isFinite(value) || value < min || value > max) {
-    throw new Error(`${name} must be between ${min} and ${max}.`);
+    throw new Error(\`\${name} must be between \${min} and \${max}.\`);
   }
   return value;
 };
@@ -13,7 +13,7 @@ const optionalNumber = (name: string, min: number, max: number) => {
   if (raw === undefined || raw === "") return undefined;
   const value = Number(raw);
   if (!Number.isFinite(value) || value < min || value > max) {
-    throw new Error(`${name} must be between ${min} and ${max}.`);
+    throw new Error(\`\${name} must be between \${min} and \${max}.\`);
   }
   return value;
 };
@@ -25,10 +25,10 @@ function stringArrayFromEnv(name: string, fallback: string[]) {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error(`${name} must be a JSON array of strings.`);
+    throw new Error(\`\${name} must be a JSON array of strings.\`);
   }
   if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) {
-    throw new Error(`${name} must be a JSON array of strings.`);
+    throw new Error(\`\${name} must be a JSON array of strings.\`);
   }
   return parsed as string[];
 }
@@ -36,7 +36,7 @@ function stringArrayFromEnv(name: string, fallback: string[]) {
 export const config = {
   port: numberFromEnv("AI_CORE_PORT", 8787, 1, 65535),
   apiKey: process.env.AI_CORE_API_KEY || "",
-  modelBaseUrl: (process.env.AI_CORE_MODEL_BASE_URL || "").replace(/\\/+$/, ""),
+  modelBaseUrl: (process.env.AI_CORE_MODEL_BASE_URL || "").replace(/\/+$/, ""),
   modelApiKey: process.env.AI_CORE_MODEL_API_KEY || "",
   model: process.env.AI_CORE_MODEL || "",
   reaCommand: process.env.REA_MCP_COMMAND || "npx",
@@ -57,7 +57,7 @@ export function validateConfig() {
   if (!config.apiKey || config.apiKey.length < 32) {
     throw new Error("AI_CORE_API_KEY must be set to a random secret of at least 32 characters.");
   }
-  if (!config.modelBaseUrl || !/^https?:\\/\\//i.test(config.modelBaseUrl)) {
+  if (!config.modelBaseUrl || !/^https?:\/\//i.test(config.modelBaseUrl)) {
     throw new Error("AI_CORE_MODEL_BASE_URL must be an HTTP(S) OpenAI-compatible endpoint.");
   }
   if (!config.model) throw new Error("AI_CORE_MODEL is required.");
