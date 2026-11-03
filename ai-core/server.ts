@@ -21,10 +21,21 @@ app.use(express.json({ limit: config.maxRequestBytes }));
 let ready = false;
 let memoryReady = false;
 let agentQueue: Promise<unknown> = Promise.resolve();
+let queuedAgentRequests = 0;
+const MAX_QUEUED_AGENT_REQUESTS = 8;
 
 function runAgentSerial(messages: any[], signal: AbortSignal, memoryContext?: string) {
-  const task = agentQueue.then(() => runAgent(messages, signal, memoryContext));
-  agentQueue = task.catch(() => undefined);
+  if (queuedAgentRequests >= MAX_QUEUED_AGENT_REQUESTS) {
+    throw new Error("AI Core is busy; retry after an active agent request finishes.");
+  }
+  queuedAgentRequests += 1;
+  const task = agentQueue.then(() => {
+    if (signal.aborted) throw new Error("Agent request was cancelled before execution.");
+    return runAgent(messages, signal, memoryContext);
+  });
+  agentQueue = task.catch(() => undefined).finally(() => {
+    queuedAgentRequests = Math.max(0, queuedAgentRequests - 1);
+  });
   return task;
 }
 
@@ -122,10 +133,13 @@ app.post("/v1/agent/run", authenticate, async (req, res) => {
   if (!Array.isArray(messages) || messages.length === 0 || messages.length > 100) {
     return res.status(400).json({ error: "messages must be a non-empty array with at most 100 entries." });
   }
+  let totalMessageChars = 0;
   for (const item of messages) {
-    if (!item || !["user", "assistant"].includes(item.role) || typeof item.content !== "string") {
-      return res.status(400).json({ error: "Each message must contain role=user|assistant and string content." });
+    if (!item || !["user", "assistant"].includes(item.role) || typeof item.content !== "string" || item.content.length > 100000) {
+      return res.status(400).json({ error: "Each message must contain role=user|assistant and string content up to 100000 characters." });
     }
+    totalMessageChars += item.content.length;
+    if (totalMessageChars > 300000) return res.status(413).json({ error: "Combined message content exceeds 300000 characters." });
   }
 
   const controller = new AbortController();
@@ -178,11 +192,14 @@ const server = app.listen(config.port, "0.0.0.0", async () => {
   }
 });
 
+let shuttingDown = false;
 async function shutdown() {
-  server.close();
+  if (shuttingDown) return;
+  shuttingDown = true;
+  ready = false;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
   await closeRea();
   await closeMemoryStore();
-  process.exit(0);
 }
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
