@@ -3,6 +3,14 @@ import { timingSafeEqual } from "node:crypto";
 import { config, validateConfig } from "./config.js";
 import { connectRea, closeRea, getReaTools } from "./reaClient.js";
 import { runAgent } from "./orchestrator.js";
+import {
+  addMemory,
+  closeMemoryStore,
+  connectMemoryStore,
+  createConversation,
+  saveMessage,
+  searchMemory
+} from "./memoryStore.js";
 
 validateConfig();
 
@@ -11,7 +19,9 @@ app.disable("x-powered-by");
 app.use(express.json({ limit: config.maxRequestBytes }));
 
 let ready = false;
+let memoryReady = false;
 let agentQueue: Promise<unknown> = Promise.resolve();
+
 function runAgentSerial(messages: any[], signal: AbortSignal) {
   const task = agentQueue.then(() => runAgent(messages, signal));
   agentQueue = task.catch(() => undefined);
@@ -28,13 +38,82 @@ function authenticate(req: express.Request, res: express.Response, next: express
   next();
 }
 
+function requireMemory(res: express.Response) {
+  if (memoryReady) return true;
+  res.status(503).json({ error: "Persistent memory is unavailable. Configure DATABASE_URL and apply ai-core/migrations/001_memory.sql." });
+  return false;
+}
+
+function validUserId(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= 200;
+}
+
 app.get("/health", (_req, res) => {
-  res.status(ready ? 200 : 503).json({ status: ready ? "ok" : "starting", service: "omnimind-ai-core", reaConnected: ready && getReaTools().length > 0 });
+  res.status(ready ? 200 : 503).json({
+    status: ready ? "ok" : "starting",
+    service: "omnimind-ai-core",
+    reaConnected: ready && getReaTools().length > 0,
+    memoryConnected: memoryReady
+  });
 });
 
 app.get("/v1/rea/tools", authenticate, (_req, res) => {
   if (!ready) return res.status(503).json({ error: "AI Core is not ready." });
   res.json({ tools: getReaTools().map(({ name, description }) => ({ name, description })) });
+});
+
+app.post("/v1/conversations", authenticate, async (req, res) => {
+  if (!requireMemory(res)) return;
+  const { userId, title } = req.body || {};
+  if (!validUserId(userId)) return res.status(400).json({ error: "A trusted userId is required." });
+  try {
+    res.status(201).json(await createConversation(userId, typeof title === "string" ? title : undefined));
+  } catch {
+    res.status(500).json({ error: "Could not create conversation." });
+  }
+});
+
+app.post("/v1/conversations/:conversationId/messages", authenticate, async (req, res) => {
+  if (!requireMemory(res)) return;
+  const { userId, role, content } = req.body || {};
+  if (!validUserId(userId) || !["user", "assistant"].includes(role) || typeof content !== "string" || !content.trim() || content.length > 100000) {
+    return res.status(400).json({ error: "userId, role=user|assistant and non-empty content (max 100000 chars) are required." });
+  }
+  try {
+    res.status(201).json(await saveMessage(userId, req.params.conversationId, role, content));
+  } catch {
+    res.status(404).json({ error: "Conversation not found for this user, or message could not be saved." });
+  }
+});
+
+app.post("/v1/memory/ingest", authenticate, async (req, res) => {
+  if (!requireMemory(res)) return;
+  const { userId, sourceType, sourceId, content, metadata } = req.body || {};
+  if (!validUserId(userId) || !["conversation", "document", "codebase", "note"].includes(sourceType) ||
+      typeof content !== "string" || !content.trim() || content.length > 12000 ||
+      (metadata !== undefined && (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)))) {
+    return res.status(400).json({ error: "Valid userId, sourceType, content (max 12000 chars), and optional metadata object are required." });
+  }
+  try {
+    res.status(201).json(await addMemory(userId, sourceType, content, typeof sourceId === "string" ? sourceId : undefined, metadata || {}));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Memory ingestion failed.";
+    res.status(502).json({ error: message });
+  }
+});
+
+app.post("/v1/memory/search", authenticate, async (req, res) => {
+  if (!requireMemory(res)) return;
+  const { userId, query, limit } = req.body || {};
+  if (!validUserId(userId) || typeof query !== "string" || !query.trim() || query.length > 12000) {
+    return res.status(400).json({ error: "Valid userId and query (max 12000 chars) are required." });
+  }
+  try {
+    res.json({ memories: await searchMemory(userId, query, Number.isInteger(limit) ? limit : 6) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Memory search failed.";
+    res.status(502).json({ error: message });
+  }
 });
 
 app.post("/v1/agent/run", authenticate, async (req, res) => {
@@ -64,11 +143,12 @@ app.post("/v1/agent/run", authenticate, async (req, res) => {
 
 const server = app.listen(config.port, "0.0.0.0", async () => {
   try {
+    memoryReady = await connectMemoryStore();
     const tools = await connectRea();
     ready = true;
-    console.log(`AI Core listening on :${config.port}; connected to REA with ${tools.length} tools.`);
+    console.log(`AI Core listening on :${config.port}; connected to REA with ${tools.length} tools; memory ${memoryReady ? "enabled" : "disabled"}.`);
   } catch (error) {
-    console.error("REA connection failed; API remains unavailable until restart:", error);
+    console.error("AI Core startup failed:", error);
     server.close();
     process.exitCode = 1;
   }
@@ -77,6 +157,7 @@ const server = app.listen(config.port, "0.0.0.0", async () => {
 async function shutdown() {
   server.close();
   await closeRea();
+  await closeMemoryStore();
   process.exit(0);
 }
 process.on("SIGINT", shutdown);
