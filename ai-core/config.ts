@@ -18,13 +18,29 @@ const optionalNumber = (name: string, min: number, max: number) => {
   return value;
 };
 
+function stringArrayFromEnv(name: string, fallback: string[]) {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`${name} must be a JSON array of strings.`);
+  }
+  if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) {
+    throw new Error(`${name} must be a JSON array of strings.`);
+  }
+  return parsed as string[];
+}
+
 export const config = {
   port: numberFromEnv("AI_CORE_PORT", 8787, 1, 65535),
   apiKey: process.env.AI_CORE_API_KEY || "",
-  modelBaseUrl: (process.env.AI_CORE_MODEL_BASE_URL || "").replace(/\/+$/, ""),
+  modelBaseUrl: (process.env.AI_CORE_MODEL_BASE_URL || "").replace(/\\/+$/, ""),
   modelApiKey: process.env.AI_CORE_MODEL_API_KEY || "",
   model: process.env.AI_CORE_MODEL || "",
-  reaUrl: process.env.REA_MCP_URL || "http://127.0.0.1:8765/mcp",
+  reaCommand: process.env.REA_MCP_COMMAND || "npx",
+  reaArgs: stringArrayFromEnv("REA_MCP_ARGS_JSON", ["-y", "rea-agents", "mcp"]),
   temperature: numberFromEnv("AI_CORE_TEMPERATURE", 0.2, 0, 2),
   topP: numberFromEnv("AI_CORE_TOP_P", 0.95, 0, 1),
   topK: optionalNumber("AI_CORE_TOP_K", 1, 1000),
@@ -41,7 +57,7 @@ export function validateConfig() {
   if (!config.apiKey || config.apiKey.length < 32) {
     throw new Error("AI_CORE_API_KEY must be set to a random secret of at least 32 characters.");
   }
-  if (!config.modelBaseUrl || !/^https?:\/\//i.test(config.modelBaseUrl)) {
+  if (!config.modelBaseUrl || !/^https?:\\/\\//i.test(config.modelBaseUrl)) {
     throw new Error("AI_CORE_MODEL_BASE_URL must be an HTTP(S) OpenAI-compatible endpoint.");
   }
   if (!config.model) throw new Error("AI_CORE_MODEL is required.");
