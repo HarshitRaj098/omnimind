@@ -53,7 +53,11 @@ export async function runAgent(inputMessages: ChatMessage[], signal?: AbortSigna
         messages,
         temperature: config.temperature,
         top_p: config.topP,
+        ...(config.topK !== undefined ? { top_k: config.topK } : {}),
+        frequency_penalty: config.frequencyPenalty,
+        presence_penalty: config.presencePenalty,
         max_tokens: config.maxTokens,
+        ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}),
         tools: tools.length ? tools : undefined,
         tool_choice: tools.length ? "auto" : undefined
       }),
