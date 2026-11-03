@@ -3,7 +3,7 @@ const numberFromEnv = (name: string, fallback: number, min: number, max: number)
   if (!raw) return fallback;
   const value = Number(raw);
   if (!Number.isFinite(value) || value < min || value > max) {
-    throw new Error(\`\${name} must be between \${min} and \${max}.\`);
+    throw new Error(`${name} must be between ${min} and ${max}.`);
   }
   return value;
 };
@@ -13,7 +13,7 @@ const optionalNumber = (name: string, min: number, max: number) => {
   if (raw === undefined || raw === "") return undefined;
   const value = Number(raw);
   if (!Number.isFinite(value) || value < min || value > max) {
-    throw new Error(\`\${name} must be between \${min} and \${max}.\`);
+    throw new Error(`${name} must be between ${min} and ${max}.`);
   }
   return value;
 };
@@ -25,10 +25,10 @@ function stringArrayFromEnv(name: string, fallback: string[]) {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error(\`\${name} must be a JSON array of strings.\`);
+    throw new Error(`${name} must be a JSON array of strings.`);
   }
   if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) {
-    throw new Error(\`\${name} must be a JSON array of strings.\`);
+    throw new Error(`${name} must be a JSON array of strings.`);
   }
   return parsed as string[];
 }
@@ -39,6 +39,9 @@ export const config = {
   modelBaseUrl: (process.env.AI_CORE_MODEL_BASE_URL || "").replace(/\/+$/, ""),
   modelApiKey: process.env.AI_CORE_MODEL_API_KEY || "",
   model: process.env.AI_CORE_MODEL || "",
+  databaseUrl: process.env.DATABASE_URL || "",
+  databaseSsl: process.env.DATABASE_SSL === "true",
+  embeddingModel: process.env.AI_CORE_EMBEDDING_MODEL || "",
   reaCommand: process.env.REA_MCP_COMMAND || "npx",
   reaArgs: stringArrayFromEnv("REA_MCP_ARGS_JSON", ["-y", "rea-agents", "mcp"]),
   temperature: numberFromEnv("AI_CORE_TEMPERATURE", 0.2, 0, 2),
