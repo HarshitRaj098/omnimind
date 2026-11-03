@@ -135,7 +135,8 @@ app.post("/v1/agent/run", authenticate, async (req, res) => {
   try {
     const userId = req.body?.userId;
     const conversationId = req.body?.conversationId;
-    let memoryContext: string | undefined;
+    let memoryContext: string | undefined =
+      typeof req.body?.memoryContext === "string" ? req.body.memoryContext.slice(0, 18000) : undefined;
     const latestUserMessage = [...messages].reverse().find((item: any) => item.role === "user")?.content;
 
     if (userId !== undefined || conversationId !== undefined) {
