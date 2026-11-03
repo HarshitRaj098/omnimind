@@ -22,8 +22,8 @@ let ready = false;
 let memoryReady = false;
 let agentQueue: Promise<unknown> = Promise.resolve();
 
-function runAgentSerial(messages: any[], signal: AbortSignal) {
-  const task = agentQueue.then(() => runAgent(messages, signal));
+function runAgentSerial(messages: any[], signal: AbortSignal, memoryContext?: string) {
+  const task = agentQueue.then(() => runAgent(messages, signal, memoryContext));
   agentQueue = task.catch(() => undefined);
   return task;
 }
