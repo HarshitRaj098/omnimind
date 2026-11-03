@@ -51,6 +51,30 @@ an optional PostgreSQL/pgvector memory service.
 The AI Core starts REA itself and performs the MCP handshake/tool discovery.
 Do not start a second REA MCP server for this integration.
 
+## Connect the main OmniMind app
+
+The main Express app can route its existing Agent Mode requests through this
+service. Set these variables on the **main app server** (not Vite/client code):
+
+```bash
+AI_CORE_URL=https://your-private-ai-core-host
+AI_CORE_API_KEY=<same secret configured in AI Core>
+```
+
+When both variables are present and the user enables Agent Mode, the main
+server forwards the recent chat history and its existing consent-aware memory
+context to `POST /v1/agent/run`. The AI Core returns the answer and REA tool
+trace; the main app streams the completed answer to the current chat UI and
+continues to store conversations in its existing app storage. Without these
+variables, the existing Gemini Agent Mode path remains unchanged.
+
+The current main app repository does not implement Firebase Authentication:
+its conversation and memory APIs currently use a shared local server-side
+store. This bridge therefore does not claim multi-user Firebase isolation.
+Keep the AI Core URL private, use a strong server-to-server key, and do not
+expose `AI_CORE_API_KEY` through any `VITE_*` variable. Add verified user
+identity and per-user authorization before enabling multiple users.
+
 ## Memory API
 
 All endpoints require `Authorization: Bearer $AI_CORE_API_KEY`. The host
