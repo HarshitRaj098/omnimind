@@ -133,7 +133,30 @@ app.post("/v1/agent/run", authenticate, async (req, res) => {
     if (!res.writableEnded) controller.abort();
   });
   try {
-    const result = await runAgentSerial(messages, controller.signal);
+    const userId = req.body?.userId;
+    const conversationId = req.body?.conversationId;
+    let memoryContext: string | undefined;
+    const latestUserMessage = [...messages].reverse().find((item: any) => item.role === "user")?.content;
+
+    if (userId !== undefined || conversationId !== undefined) {
+      if (!memoryReady || !validUserId(userId) || typeof conversationId !== "string" || !/^[0-9a-f-]{36}$/i.test(conversationId)) {
+        return res.status(400).json({ error: "When enabling persistence, provide a valid userId and conversationId and configure memory." });
+      }
+      if (typeof latestUserMessage === "string") {
+        await saveMessage(userId, conversationId, "user", latestUserMessage);
+        const memories = await searchMemory(userId, latestUserMessage, 6);
+        memoryContext = memories
+          .filter((item: any) => Number(item.similarity) >= 0.35)
+          .map((item: any) => `[source=${item.source_type}; similarity=${Number(item.similarity).toFixed(2)}] ${item.content}`)
+          .join("\\n\\n")
+          .slice(0, 18000);
+      }
+    }
+
+    const result = await runAgentSerial(messages, controller.signal, memoryContext);
+    if (memoryReady && validUserId(userId) && typeof conversationId === "string" && typeof result.answer === "string" && result.answer) {
+      await saveMessage(userId, conversationId, "assistant", result.answer);
+    }
     if (!res.headersSent && !res.destroyed) res.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Agent execution failed.";
