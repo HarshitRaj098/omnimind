@@ -1,4 +1,5 @@
 import express from "express";
+import { timingSafeEqual } from "node:crypto";
 import { config, validateConfig } from "./config.js";
 import { connectRea, closeRea, getReaTools } from "./reaClient.js";
 import { runAgent } from "./orchestrator.js";
@@ -11,8 +12,9 @@ app.use(express.json({ limit: config.maxRequestBytes }));
 
 function authenticate(req: express.Request, res: express.Response, next: express.NextFunction) {
   const supplied = req.header("authorization")?.replace(/^Bearer\s+/i, "") || "";
-  if (supplied.length !== config.apiKey.length ||
-      !Buffer.from(supplied).equals(Buffer.from(config.apiKey))) {
+  const expected = Buffer.from(config.apiKey);
+  const candidate = Buffer.from(supplied);
+  if (candidate.length !== expected.length || !timingSafeEqual(candidate, expected)) {
     return res.status(401).json({ error: "Unauthorized" });
   }
   next();
@@ -38,13 +40,15 @@ app.post("/v1/agent/run", authenticate, async (req, res) => {
   }
 
   const controller = new AbortController();
-  req.on("close", () => controller.abort());
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort();
+  });
   try {
     const result = await runAgent(messages, controller.signal);
-    if (!res.headersSent) res.json(result);
+    if (!res.headersSent && !res.destroyed) res.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Agent execution failed.";
-    if (!res.headersSent) res.status(502).json({ error: message });
+    if (!res.headersSent && !res.destroyed) res.status(502).json({ error: message });
   }
 });
 
