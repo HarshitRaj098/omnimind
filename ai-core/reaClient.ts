@@ -1,5 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { config } from "./config.js";
 
 export type ReaTool = {
@@ -9,23 +9,23 @@ export type ReaTool = {
 };
 
 let client: Client | undefined;
-let transport: StreamableHTTPClientTransport | undefined;
+let transport: StdioClientTransport | undefined;
 let tools: ReaTool[] = [];
 
 export async function connectRea() {
-  const url = new URL(config.reaUrl);
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("REA_MCP_URL must use HTTP or HTTPS.");
-  }
-  if (url.hostname !== "127.0.0.1" && url.hostname !== "::1" && url.hostname !== "localhost") {
-    throw new Error("REA MCP must remain on loopback. Do not expose its unauthenticated HTTP transport publicly.");
-  }
-
-  transport = new StreamableHTTPClientTransport(url);
-  client = new Client({ name: "omnimind-ai-core", version: "0.1.0" });
+  // REA's documented MCP interface is stdio, not an unauthenticated HTTP listener.
+  transport = new StdioClientTransport({
+    command: config.reaCommand,
+    args: config.reaArgs,
+    env: Object.fromEntries(
+      Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    )
+  });
+  client = new Client({ name: "omnimind-ai-core", version: "0.2.0" });
   await client.connect(transport);
   const result = await client.listTools();
   tools = (result.tools || []) as ReaTool[];
+  if (tools.length === 0) throw new Error("REA connected but exposed no tools.");
   return tools;
 }
 
