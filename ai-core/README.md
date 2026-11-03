@@ -48,6 +48,31 @@ an optional PostgreSQL/pgvector memory service.
 5. The default REA launch command is `npx -y rea-agents mcp`. Start the API
    with `npm run dev`.
 
+### Docker
+
+Build from the AI Core directory:
+
+```bash
+docker build -t omnimind-ai-core .
+```
+
+Run it with a separately configured environment file (never bake `.env` into
+an image):
+
+```bash
+docker run --env-file .env -p 8787:8787 omnimind-ai-core
+```
+
+The image uses Node 22, installs production dependencies in its runtime stage,
+runs as the unprivileged `node` user, and exposes a health check. REA is still
+launched by `npx` inside the container, so the host must permit outbound access
+to the package registry at startup. Supply resource limits, a read-only target
+workspace, and restricted network egress at the container platform level.
+
+This initial Docker build uses `npm install` because the repository does not
+yet contain an AI Core lockfile. Generate and commit a reviewed lockfile before
+using the image for reproducible production releases.
+
 The AI Core starts REA itself and performs the MCP handshake/tool discovery.
 Do not start a second REA MCP server for this integration.
 
@@ -91,7 +116,7 @@ browser-supplied user ID or expose the AI Core credential in frontend code.
 
 Allowed memory source types are `conversation`, `document`, `codebase` and
 `note`. Ingestion embeds the supplied text and stores it in pgvector. The
-The current endpoint accepts one chunk of up to 12,000 characters. When the host
+current endpoint accepts one chunk of up to 12,000 characters. When the host
 backend sends both `userId` and `conversationId` to `POST /v1/agent/run`, the
 AI Core stores the latest user message and assistant answer, retrieves up to six
 relevant memory chunks, and injects matching results into the model's system
@@ -124,5 +149,7 @@ rounds are inference controls. They do not change the model's parameter count.
 ## Not included yet
 
 No model training, live REA/provider verification, document parser, automatic
-conversation-to-memory summarizer, memory injection into agent prompts,
-deployment, or connection to the main OmniMind Firebase application is included.
+conversation-to-memory summarizer, deployment, or connection to the main
+OmniMind Firebase application is included. Docker packaging is provided, but
+production isolation, network policy, lockfile reproducibility and end-to-end
+runtime verification remain outstanding.
