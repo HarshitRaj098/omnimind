@@ -8,6 +8,16 @@ const numberFromEnv = (name: string, fallback: number, min: number, max: number)
   return value;
 };
 
+const optionalNumber = (name: string, min: number, max: number) => {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < min || value > max) {
+    throw new Error(`${name} must be between ${min} and ${max}.`);
+  }
+  return value;
+};
+
 export const config = {
   port: numberFromEnv("AI_CORE_PORT", 8787, 1, 65535),
   apiKey: process.env.AI_CORE_API_KEY || "",
@@ -17,10 +27,14 @@ export const config = {
   reaUrl: process.env.REA_MCP_URL || "http://127.0.0.1:8765/mcp",
   temperature: numberFromEnv("AI_CORE_TEMPERATURE", 0.2, 0, 2),
   topP: numberFromEnv("AI_CORE_TOP_P", 0.95, 0, 1),
+  topK: optionalNumber("AI_CORE_TOP_K", 1, 1000),
+  frequencyPenalty: numberFromEnv("AI_CORE_FREQUENCY_PENALTY", 0, -2, 2),
+  presencePenalty: numberFromEnv("AI_CORE_PRESENCE_PENALTY", 0, -2, 2),
   maxTokens: numberFromEnv("AI_CORE_MAX_TOKENS", 8192, 1, 131072),
   maxToolRounds: numberFromEnv("AI_CORE_MAX_TOOL_ROUNDS", 8, 1, 20),
   requestTimeoutMs: numberFromEnv("AI_CORE_REQUEST_TIMEOUT_MS", 120000, 1000, 600000),
-  maxRequestBytes: numberFromEnv("AI_CORE_MAX_REQUEST_BYTES", 2_000_000, 1024, 20_000_000)
+  maxRequestBytes: numberFromEnv("AI_CORE_MAX_REQUEST_BYTES", 2_000_000, 1024, 20_000_000),
+  reasoningEffort: process.env.AI_CORE_REASONING_EFFORT || ""
 };
 
 export function validateConfig() {
