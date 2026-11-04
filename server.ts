@@ -3827,28 +3827,6 @@ app.post("/api/chat/stream", async (req, res) => {
       }
     };
 
-    if ((process.env.AI_PROVIDER || "local").trim().toLowerCase() === "local") {
-      const localBaseUrl = process.env.AI_COMPATIBLE_BASE_URL?.trim() || "http://127.0.0.1:11434/v1";
-      const localModel = process.env.AI_COMPATIBLE_MODEL?.trim() || "qwen2.5:3b";
-      const localMessages = [
-        { role: "system" as const, content: systemInstruction },
-        ...history.map((item: any) => ({
-          role: item.role === "model" ? "assistant" as const : "user" as const,
-          content: item.parts.map((part: any) => part.text || "").join("\n")
-        })),
-        { role: "user" as const, content: [
-          String(message || "Please inspect the attached files."),
-          ...messageParts.slice(1).map((part: any) => part.text || "")
-        ].filter(Boolean).join("\n\n") }
-      ];
-      activeGroundingEnabled = false;
-      resultStream = await streamCompatibleChat({
-        baseUrl: localBaseUrl,
-        model: localModel,
-        messages: localMessages,
-        temperature: settings.temperature ?? 0.7
-      });
-    } else {
     try {
       resultStream = await initStream(primaryModel, useSearch);
     } catch (primaryErr: any) {
@@ -3919,8 +3897,6 @@ app.post("/api/chat/stream", async (req, res) => {
         if (fallbackModel === primaryModel) throw primaryErr;
         resultStream = await initStream(fallbackModel, false);
       }
-    }
-
     }
 
     let fullModelResponse = "";
