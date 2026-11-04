@@ -24,8 +24,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSave,
 }) => {
   const [formData, setFormData] = useState(settings);
+  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
+
   useEffect(() => {
     setFormData(settings);
+    fetch("/api/health")
+      .then((res) => res.json())
+      .then((data) => setHasApiKey(data.hasApiKey))
+      .catch(() => setHasApiKey(false));
   }, [settings, isOpen]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -160,20 +166,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           />
         )}
 
-        {/* Local Inference Provider */}
+        {/* Default Model Selector */}
         <div className="space-y-2 pt-4 border-t border-[var(--claude-border)]">
           <label className="text-xs font-semibold text-[var(--claude-text)] flex items-center gap-2">
-            <AppIcon name="cpu" size={14} className="text-[var(--claude-accent)]" />
-            <span>Local AI Model</span>
+            <AppIcon name="sparkles" size={14} className="text-[var(--claude-accent)]" />
+            <span>Default Gemini Model</span>
           </label>
-          <div className="rounded-xl border border-[var(--claude-border)] bg-[var(--claude-bg)] p-3">
-            <div className="text-xs font-semibold text-[var(--claude-text)]">Qwen 2.5 · 3B</div>
-            <p className="mt-1 text-[11px] leading-relaxed text-[var(--claude-text-muted)]">
-              OmniMind sends chat requests to your Ollama server. The model and server URL are configured on the backend; no Gemini, Claude, or OpenAI API key is needed for local chat.
-            </p>
-            <p className="mt-2 text-[11px] font-mono text-[var(--claude-text-secondary)]">
-              Provider: Ollama · http://127.0.0.1:11434
-            </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {[
+              { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", desc: "Fast & search grounded" },
+              { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", desc: "Flagship intelligence" },
+              { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", desc: "Deep reasoning & STEM" },
+            ].map((m) => {
+              const isSelected = formData.model === m.id;
+              return (
+                <div
+                  key={m.id}
+                  onClick={() => setFormData({ ...formData, model: m.id })}
+                  className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
+                    isSelected
+                      ? "bg-[var(--claude-accent)]/10 border-[var(--claude-accent)] shadow-xs"
+                      : "bg-[var(--claude-bg)] border-[var(--claude-border)] hover:border-[var(--claude-border-subtle)]"
+                  }`}
+                >
+                  <div className="text-xs font-semibold text-[var(--claude-text)] mb-0.5">{m.name}</div>
+                  <div className="text-[10px] text-[var(--claude-text-muted)]">{m.desc}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -214,6 +234,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           />
         </div>
 
+        {/* API Key Status */}
+        <div className="pt-4 border-t border-[var(--claude-border)] flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <AppIcon name="shield" size={15} className="text-[var(--claude-text-muted)]" />
+            <span className="text-[var(--claude-text-secondary)]">Environment API Key</span>
+          </div>
+          <StatusText
+            status={hasApiKey ? "active" : "error"}
+            label={hasApiKey ? "GEMINI_API_KEY Configured" : "No API Key Detected"}
+          />
+        </div>
       </form>
     </Modal>
   );
