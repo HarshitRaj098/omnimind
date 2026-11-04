@@ -3846,8 +3846,7 @@ app.post("/api/chat/stream", async (req, res) => {
         baseUrl: localBaseUrl,
         model: localModel,
         messages: localMessages,
-        temperature: settings.temperature ?? 0.7,
-        signal: req.signal
+        temperature: settings.temperature ?? 0.7
       });
     } else {
     try {
